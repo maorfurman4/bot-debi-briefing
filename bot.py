@@ -11,6 +11,7 @@ import os
 import re
 import random
 from datetime import datetime, timedelta, timezone
+import datetime as dt_module
 
 import feedparser
 import requests
@@ -103,7 +104,7 @@ def _visibility_text(vis_m: int) -> str:
     return f"ירודה ({km:.1f} ק\"מ) ⚠️"
 
 
-def get_dynamic_exercise_time(lat: float, lon: float, default_temp: float) -> str:
+def get_dynamic_exercise_time(lat: float, lon: float) -> str:
     """מושך תחזית שעתית ומחשב שעות אידיאליות לאימון לפי חום וקרינה."""
     try:
         om = requests.get(
@@ -126,27 +127,37 @@ def get_dynamic_exercise_time(lat: float, lon: float, default_temp: float) -> st
                 hour = int(t_str[11:13])
                 temp = temps[i]
                 uv = uvs[i]
-                # תנאים לאימון נעים: טמפ' מתחת ל-26 מעלות ו-UV נמוך מ-4, בין 05:00 ל-22:00
                 if temp <= 26 and uv < 4 and (5 <= hour <= 22):
                     good_hours.append(hour)
         
         if not good_hours:
-            return "🏃 <b>זמן אימון מומלץ:</b> היום חם מדי או קרינה חזקה לאורך כל היום. מומלץ מזגן בלבד 🧊"
+            return "🏃 <b>זמן אימון:</b> חם מדי או קרינה חזקה היום. עדיף במזגן 🧊"
         
-        # חיבור שעות רצופות לטווחים
         ranges = []
         start = good_hours[0]
         for j in range(1, len(good_hours)):
             if good_hours[j] != good_hours[j-1] + 1:
                 ranges.append(f"{start:02d}:00-{good_hours[j-1]:02d}:00")
                 start = good_hours[j]
-        # סגירת הטווח האחרון
         ranges.append(f"{start:02d}:00-{(good_hours[-1]+1):02d}:00")
         
-        return f"🏃 <b>שעות אימון מומלצות היום:</b> {', '.join(ranges)} (טמפ' מתחת ל-26°C וקרינה נמוכה) ✅"
-    except Exception as ex:
-        logger.error("Exercise calc error: %s", ex)
-        return "🏃 <b>זמן אימון:</b> בוקר מוקדם או ערב מאוחר (שגיאה בחישוב מדויק)."
+        return f"🏃 <b>שעות אימון מומלצות היום:</b> {', '.join(ranges)}"
+    except Exception:
+        return "🏃 <b>זמן אימון:</b> בוקר מוקדם או ערב מאוחר."
+
+
+def get_clothing_recommendation(t_min: float, t_max: float) -> str:
+    """ממליץ על לבוש מדויק ופרקטי כולל נעליים בהתאם להפרשי טמפרטורות."""
+    if t_min < 14 and t_max > 24:
+        return "👕 <b>שיטת הבצל:</b> בוקר קריר דורש עליונית ומכנסיים ארוכים קלילים, בצהריים יהיה חם אז חולצה קצרה מתחת. נעליים סגורות יהיו הכי נוחות להבדלי הטמפרטורה."
+    elif t_max <= 16:
+        return "🧥 <b>חורפי:</b> חולצה ארוכה, סוודר/מעיל, מכנסיים ארוכים (ג'ינס או עבה) ונעליים סגורות או מגפיים. יהיה קר כל היום!"
+    elif t_max > 28:
+        return "🩳 <b>קיץ לוהט:</b> קצר וקליל ככל האפשר, מכנסיים קצרים, סנדלים/כפכפים או נעלי ספורט מאווררות. אל תשכח כובע למשך היום."
+    elif t_min >= 18 and t_max <= 28:
+        return "👕 <b>נעים וקליל:</b> חולצה קצרה, מכנסיים ארוכים דקים או קצרים (לפי העדפה אישית), וסניקרס נוחות. מזג אוויר אידיאלי."
+    else:
+        return "👖 <b>סתיו/אביב קלאסי:</b> חולצה קצרה עם ג'קט קל לבוקר/ערב, ג'ינס או מכנסי בד נוחים ונעליים סגורות רגילות."
 
 
 def get_weather() -> str:
@@ -158,68 +169,56 @@ def get_weather() -> str:
             f"?q=Tel+Aviv,IL&appid={OPENWEATHER_KEY}&units=metric&lang=he",
             timeout=10,
         ).json()
-        if ow.get("cod") != 200:
-            return f"🌡️ <b>מזג אוויר</b> — שגיאה: {esc(str(ow.get('message', '')))}"
+        
+        lat = ow["coord"]["lat"]
+        lon = ow["coord"]["lon"]
+        
+        # משיכת מינימום/מקסימום יומי אמיתי מ-Open-Meteo (OpenWeather מביא טווח רגעי)
+        t_max, t_min, uvi_max = 0.0, 0.0, 0.0
+        try:
+            om_daily = requests.get(
+                f"https://api.open-meteo.com/v1/forecast"
+                f"?latitude={lat}&longitude={lon}"
+                f"&daily=temperature_2m_max,temperature_2m_min,uv_index_max&timezone=Asia/Jerusalem",
+                timeout=8,
+            ).json()
+            t_max = om_daily["daily"]["temperature_2m_max"][0]
+            t_min = om_daily["daily"]["temperature_2m_min"][0]
+            uvi_max = om_daily["daily"]["uv_index_max"][0]
+        except Exception:
+            t_max, t_min = ow["main"]["temp_max"], ow["main"]["temp_min"]
 
         temp        = ow["main"]["temp"]
-        temp_max    = ow["main"]["temp_max"]
-        temp_min    = ow["main"]["temp_min"]
         feels       = ow["main"]["feels_like"]
         desc        = esc(ow["weather"][0]["description"])
         humidity    = ow["main"]["humidity"]
         wind_ms     = ow["wind"]["speed"]
         visibility  = ow.get("visibility", 10000)
-        lat         = ow["coord"]["lat"]
-        lon         = ow["coord"]["lon"]
         sunrise_ts  = ow["sys"]["sunrise"]
         sunset_ts   = ow["sys"]["sunset"]
-        rain        = "rain" in ow.get("weather", [{}])[0].get("main", "").lower()
-
-        # ממוצע יומי
-        avg_temp    = (temp_max + temp_min) / 2
+        avg_temp    = (t_max + t_min) / 2
 
         sunrise_str = datetime.fromtimestamp(sunrise_ts, tz=IL_TZ).strftime("%H:%M")
         sunset_str  = datetime.fromtimestamp(sunset_ts,  tz=IL_TZ).strftime("%H:%M")
 
-        # שיא UV יומיומי מ-Open-Meteo
-        uvi_max = 0.0
-        try:
-            om = requests.get(
-                f"https://api.open-meteo.com/v1/forecast"
-                f"?latitude={lat}&longitude={lon}"
-                f"&daily=uv_index_max&timezone=Asia/Jerusalem",
-                timeout=8,
-            ).json()
-            uvi_max = om.get("daily", {}).get("uv_index_max", [0.0])[0]
-        except Exception:
-            pass
-
-        # ביגוד
-        if temp < 8: clothes = "🧥 מעיל חורף כבד, כובע וכפפות — קר מאוד!"
-        elif temp < 14: clothes = "🧣 מעיל בינוני + צעיף, שכבות פנימיות"
-        elif temp < 19: clothes = "🍂 ג'קט קל וחולצה ארוכה — בוקר קריר"
-        elif temp < 24: clothes = "👕 חולצת טי עם שכבה קלה לשינויים"
-        elif temp < 29: clothes = "☀️ חולצת טי, קרם הגנה — נעים!"
-        else: clothes = "🌊 לבוש קל ככל האפשר + קרם גבוה + מים!"
-
-        rain_note = "\n☔ <b>גשם צפוי</b> — קח מטריה!" if rain else ""
-        exercise_text = get_dynamic_exercise_time(lat, lon, temp)
+        clothes = get_clothing_recommendation(t_min, t_max)
+        exercise_text = get_dynamic_exercise_time(lat, lon)
 
         return (
             f"🌡️ <b>מזג אוויר — תל אביב</b>\n"
             f"טמפ' עכשיו: <b>{temp:.0f}°C</b> | ממוצעת יומית: <b>{avg_temp:.1f}°C</b>\n"
-            f"טווח יומי: מקס' {temp_max:.0f}° / מינ' {temp_min:.0f}°\n"
+            f"טווח יומי אמיתי: מקס' {t_max:.0f}° / מינ' {t_min:.0f}°\n"
             f"תחושה: {feels:.0f}°C | {desc}\n"
             f"לחות: {humidity}%\n"
             f"רוח: {_wind_text(wind_ms)}\n"
             f"נראות: {_visibility_text(visibility)}\n"
             f"אינדקס UV (שיא להיום): {_uv_text(uvi_max)}\n"
-            f"זריחה: {sunrise_str} 🌅 | שקיעה: {sunset_str} 🌇\n"
-            f"\n👔 <b>המלצת לבוש:</b> {clothes}{rain_note}\n"
-            f"\n{exercise_text}"
+            f"זריחה: {sunrise_str} 🌅 | שקיעה: {sunset_str} 🌇\n\n"
+            f"👔 <b>לבוש להיום:</b>\n{clothes}\n\n"
+            f"{exercise_text}"
         )
     except Exception as ex:
-        logger.error("Weather: %s", ex)
+        logger.error("Weather error: %s", ex)
         return "🌡️ <b>מזג אוויר</b> — שגיאה בטעינה 😅"
 
 
@@ -239,17 +238,27 @@ AI_KW  = ["ai", "artificial intelligence", "openai", "chatgpt", "llm", "gpt", "c
 
 def _fetch_news(feeds, keywords, n=5):
     items = []
-    dramatic_prefixes = ["🚨 דרמה:", "🔥 חשיפה:", "💥 לא תאמינו:", "⚠️ בוער:", "⚡ עדכון חם:", "😱 מטלטל:"]
+    dramatic_prefixes = ["🚨 דרמה:", "🔥 חשיפה:", "💥 מטורף:", "⚠️ בוער:", "⚡ עדכון חם:", "😱 מטלטל:"]
     for url in feeds:
         try:
             for entry in feedparser.parse(url).entries:
                 title = entry.get("title", "")
                 link = entry.get("link", "")
+                summary = clean_html(entry.get("summary", ""))
+                
+                # חילוץ המשפט הראשון עבור התקציר
+                first_sentence = summary.split('.')[0] + "." if summary else ""
+                
                 if any(k.lower() in title.lower() for k in keywords):
                     translated_title = translate(title)
+                    translated_summary = translate(first_sentence[:120])
                     prefix = random.choice(dramatic_prefixes)
-                    # יצירת קישור לחיץ ב-HTML
-                    items.append(f"• {prefix} <a href='{link}'>{esc(translated_title)}</a>")
+                    
+                    # הוספת אייקון לינק ברור וצירוף התקציר תחתיו
+                    items.append(
+                        f"• {prefix} <a href='{link}'>{esc(translated_title)} 🔗</a>\n"
+                        f"  <i>\"{esc(translated_summary)}...\"</i>"
+                    )
                     if len(items) >= n:
                         return items
         except Exception:
@@ -262,11 +271,11 @@ def get_news() -> str:
     ai  = _fetch_news(AI_FEEDS, AI_KW, n=5)
     
     geo_text = "\n\n".join(geo) if geo else "שקט יחסי בחזית 🕊️"
-    ai_text = "\n\n".join(ai) if ai else "הבינה המלאכותית לקחה הפסקה 😴"
+    ai_text = "\n\n".join(ai) if ai else "הבינה המלאכותית נחה היום 😴"
     
     return (
-        f"🌍 <b>גיאופוליטיקה (ישראל-ארה\"ב)</b>\n{geo_text}\n\n"
-        f"🤖 <b>חדשות AI</b>\n{ai_text}"
+        f"🌍 <b>אקטואליה פוליטית (ישראל-ארה\"ב)</b>\n{geo_text}\n\n"
+        f"🤖 <b>חזית ה-AI</b>\n{ai_text}"
     )
 
 
@@ -284,20 +293,15 @@ def get_stocks() -> str:
             pct = ((curr - prev) / prev) * 100
             if abs(pct) >= 5:
                 icon = "📈" if pct > 0 else "📉"
-                rec  = yf.Ticker(ticker).info.get("recommendationKey", "")
-                note = f" | אנליסטים: {esc(rec)}" if rec else ""
-                alerts.append(f"{icon} <b>{ticker}</b>: {pct:+.1f}% → ${curr:.2f}{note}")
+                alerts.append(f"{icon} <b>{ticker}</b>: {pct:+.1f}% → ${curr:.2f}")
         except Exception:
             no_data.append(ticker)
 
-    lines = ["📊 <b>מניות</b>"]
+    lines = ["📊 <b>מניות (תנועות מעל 5%)</b>"]
     if alerts:
-        lines.append("⚡ <b>התראות — שינוי 5%+:</b>")
         lines.extend(alerts)
     else:
-        lines.append("אין תנועות חריגות — השוק ישן 😴")
-    watched = ", ".join(t for t in STOCKS if t not in no_data)
-    lines.append(f"\n<i>עוקב: {watched}</i>")
+        lines.append("השוק שקט למדי, אין דרמות. 😴")
     return "\n".join(lines)
 
 
@@ -315,26 +319,26 @@ def _parse_ics(url: str, target_date) -> list:
             dtstart = c.get("DTSTART")
             if not dtstart:
                 continue
-            sv = dtstart.dt
             
-            if isinstance(sv, datetime):
+            sv = dtstart.dt
+            # תיקון קריטי לטיפול באזורי זמן ובהשוואת תאריכים מול היומן שלך
+            if isinstance(sv, dt_module.datetime):
                 if sv.tzinfo is None:
                     sv = sv.replace(tzinfo=timezone.utc)
-                sl    = sv.astimezone(IL_TZ)
-                edate = sl.date()
-                tstr  = sl.strftime("%H:%M")
+                event_date = sv.astimezone(IL_TZ).date()
+                tstr = sv.astimezone(IL_TZ).strftime("%H:%M")
             else:
-                edate = sv
-                tstr  = None
+                event_date = sv  # במקרה שזה אובייקט date (אירוע כל היום)
+                tstr = None
                 
-            if edate == target_date:
+            if event_date == target_date:
                 summary = esc(str(c.get("SUMMARY", "(ללא שם)")))
                 if tstr:
                     events.append((tstr, f"  🕐 {tstr} — {summary}"))
                 else:
                     events.append(("00:00", f"  📌 {summary} (כל היום)"))
     except Exception as ex:
-        logger.warning("ICS fetch error %s: %s", url[:60], ex)
+        logger.warning("ICS fetch error: %s", ex)
     return events
 
 
@@ -342,9 +346,9 @@ def get_calendar() -> str:
     if not CALENDARS:
         return "📅 <b>לו\"ז של מאור</b> — לא מוגדר ב-.env"
     if not ICAL_AVAILABLE:
-        return "📅 <b>לו\"ז של מאור</b> — pip install icalendar"
+        return "📅 <b>לו\"ז של מאור</b> — חסרה ספרייה"
 
-    today  = datetime.now(IL_TZ).date()
+    today = datetime.now(IL_TZ).date()
     all_ev = []
     for url in CALENDARS:
         all_ev.extend(_parse_ics(url, today))
@@ -356,27 +360,38 @@ def get_calendar() -> str:
             seen.add(text)
             unique.append(text)
 
-    lines = ["📅 <b>הלו\"ז של מאור להיום:</b>"]
+    lines = ["📅 <b>היומן של מאור להיום:</b>"]
     if unique:
         lines.extend(unique)
     else:
-        lines.append("אין אירועים היום ביומן שלך, מאור — יום פנוי! 🎉")
+        lines.append("שממה ביומן, מאור! נצל את הזמן למנוחה או לפיתוח. 🎉")
     return "\n".join(lines)
 
 
 # ── בניית ההודעה ──────────────────────────────────────────────────────────────
 
 def get_witty_greeting() -> str:
-    """מחזיר פתיח רנדומלי ושנון שמכוון למאור."""
+    """מחזיר פתיח רנדומלי, אנושי ושנון."""
     greetings = [
-        "בוקר אור מאור! השמש זרחה, הקפה מחכה, והעולם לא יכבוש את עצמו.",
-        "קומו קומו מאור! דבי כאן כדי לוודא שאתה לא מפספס שום תנועה בשוק.",
-        "בוקר טוב למנכ\"ל העתידי. הנה התדריך שיעשה לך סדר בבלגן.",
-        "עוד יום, עוד הזדמנות להיות גרסה טובה יותר של עצמך. קדימה מאור!",
-        "ערני? מקווה שכן, כי החדשות של היום לא יחכו שתסיים את החלום על הטסלה.",
-        "בוקר טוב בוס! דבי מוכנה לפעולה. בוא נראה מה מחכה לנו היום."
+        "בוקר אור מאור! השמש זרחה והעולם לא יכבוש את עצמו.",
+        "קומו קומו מאור! אל תדאג, אני כבר סרקתי הכל בשבילך בזמן שישנת.",
+        "עוד יום, עוד הזדמנות לשבור שיאים. קדימה מאור!",
+        "בוקר טוב בוס. דבי כאן עם כל מה שאתה צריך כדי להתחיל את היום ברגל ימין.",
+        "בוקר טוב! קח נשימה, התארגנתי על התדריך שיעשה לך סדר בבלגן."
     ]
     return random.choice(greetings)
+
+
+def get_transition() -> str:
+    """משפט מעבר אקראי כתחליף ל'קפה בצד'."""
+    transitions = [
+        "בלי יותר מדי חפירות, בוא ניגש לעניינים...",
+        "קפה ביד? יופי, יש לנו לא מעט דברים לעבור עליהם הבוקר.",
+        "תמתח איברים, הנה מה שמחכה לנו היום בעולם האמיתי.",
+        "יאללה, בוא נראה מה העולם תכנן לנו היום.",
+        "מוכן לזה? הנה התקציר המלא שלך:"
+    ]
+    return random.choice(transitions)
 
 
 def build_message() -> str:
@@ -385,12 +400,12 @@ def build_message() -> str:
     date_str = now.strftime(f"יום {days_he[now.weekday()]}, %d/%m/%Y")
 
     return "\n\n".join([
-        f"🌅 <b>{get_witty_greeting()}</b> 😄\n<i>{date_str}</i>\nקפה בצד? יש מה לכסות...\n{SEP}",
+        f"🌅 <b>{get_witty_greeting()}</b> 😄\n<i>{date_str}</i>\n{get_transition()}\n{SEP}",
         get_weather(), SEP,
         get_news(),    SEP,
         get_stocks(),  SEP,
         get_calendar(),
-        f"{SEP}\n<i>בהצלחה ביום מאור! — דבי 🤖✨</i>",
+        f"{SEP}\n<i>שיהיה יום פרודוקטיבי! — דבי 🤖✨</i>",
     ])
 
 
@@ -400,7 +415,6 @@ async def main():
     bot = Bot(token=BOT_TOKEN)
     msg = build_message()
 
-    # disable_web_page_preview = True מוודא שטלגרם לא תפתח מלא חלוניות של הקישורים בחדשות
     if len(msg) <= 4000:
         await bot.send_message(chat_id=CHAT_ID, text=msg, parse_mode="HTML", disable_web_page_preview=True)
     else:

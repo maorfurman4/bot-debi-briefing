@@ -8,6 +8,7 @@ import asyncio
 import html
 import logging
 import os
+import re
 from datetime import datetime, timedelta, timezone
 
 import feedparser
@@ -56,6 +57,11 @@ IL_TZ = timezone(timedelta(hours=3))
 
 def esc(text: str) -> str:
     return html.escape(str(text))
+
+
+def clean_html(raw_html: str) -> str:
+    """מנקה תגיות HTML מתוך טקסט (חשוב לתיאור של חדשות)."""
+    return re.sub(r'<[^>]+>', '', raw_html) if raw_html else ""
 
 
 def translate(text: str) -> str:
@@ -133,20 +139,23 @@ def get_weather() -> str:
         sunset_ts   = ow["sys"]["sunset"]
         rain        = "rain" in ow.get("weather", [{}])[0].get("main", "").lower()
 
+        # חישוב טמפרטורה ממוצעת יומית
+        avg_temp    = (temp_max + temp_min) / 2
+
         # זריחה ושקיעה
         sunrise_str = datetime.fromtimestamp(sunrise_ts, tz=IL_TZ).strftime("%H:%M")
         sunset_str  = datetime.fromtimestamp(sunset_ts,  tz=IL_TZ).strftime("%H:%M")
 
-        # UV index מ-Open-Meteo (חינם, ללא מפתח)
-        uvi = 0.0
+        # UV index מ-Open-Meteo - שינוי ל-Daily Max במקום נוכחי
+        uvi_max = 0.0
         try:
             om = requests.get(
                 f"https://api.open-meteo.com/v1/forecast"
                 f"?latitude={lat}&longitude={lon}"
-                f"&current=uv_index&timezone=Asia/Jerusalem",
+                f"&daily=uv_index_max&timezone=Asia/Jerusalem",
                 timeout=8,
             ).json()
-            uvi = om.get("current", {}).get("uv_index", 0.0)
+            uvi_max = om.get("daily", {}).get("uv_index_max", [0.0])[0]
         except Exception:
             pass
 
@@ -168,15 +177,16 @@ def get_weather() -> str:
 
         return (
             f"🌡️ <b>מזג אוויר — תל אביב</b>\n"
-            f"טמפ': <b>{temp:.0f}°C</b> (מקס' {temp_max:.0f}° / מינ' {temp_min:.0f}°)\n"
+            f"טמפ' עכשיו: <b>{temp:.0f}°C</b> | ממוצעת יומית: <b>{avg_temp:.1f}°C</b>\n"
+            f"טווח יומי: מקס' {temp_max:.0f}° / מינ' {temp_min:.0f}°\n"
             f"תחושה: {feels:.0f}°C | {desc}\n"
             f"לחות: {humidity}%\n"
             f"רוח: {_wind_text(wind_ms)}\n"
             f"נראות: {_visibility_text(visibility)}\n"
-            f"UV: {_uv_text(uvi)}\n"
+            f"אינדקס UV (שיא להיום): {_uv_text(uvi_max)}\n"
             f"זריחה: {sunrise_str} 🌅 | שקיעה: {sunset_str} 🌇\n"
             f"\n👔 <b>המלצת לבוש:</b> {clothes}{rain_note}\n"
-            f"\n{_exercise_time(temp, uvi)}"
+            f"\n{_exercise_time(temp, uvi_max)}"
         )
     except Exception as ex:
         logger.error("Weather: %s", ex)
@@ -205,10 +215,14 @@ def _fetch_news(feeds, keywords, n=3):
         try:
             for entry in feedparser.parse(url).entries:
                 title = entry.get("title", "")
-                body  = entry.get("summary", "")
-                if any(k.lower() in (title + body).lower() for k in keywords):
-                    translated = translate(title.strip())
-                    items.append(f"• {esc(translated[:140])}")
+                summary = clean_html(entry.get("summary", ""))
+                # חילוץ משפט ראשון מהתוכן כדי לתת פואנטה עניינית
+                first_sentence = summary.split('.')[0] + "." if summary else ""
+                
+                if any(k.lower() in (title + summary).lower() for k in keywords):
+                    combined_text = f"{title}\n{first_sentence}"
+                    translated = translate(combined_text)
+                    items.append(f"• {esc(translated)}")
                     if len(items) >= n:
                         return items
         except Exception:
@@ -220,9 +234,9 @@ def get_news() -> str:
     geo = _fetch_news(GEO_FEEDS, GEO_KW)
     ai  = _fetch_news(AI_FEEDS,  AI_KW)
     return "\n\n".join([
-        "🌍 <b>גיאופוליטיקה (ישראל-ארה\"ב)</b>\n" + "\n".join(geo) if geo
+        "🌍 <b>גיאופוליטיקה (ישראל-ארה\"ב)</b>\n" + "\n\n".join(geo) if geo
         else "🌍 <b>גיאופוליטיקה</b> — שקט יחסי בחזית 🕊️",
-        "🤖 <b>חדשות AI</b>\n" + "\n".join(ai) if ai
+        "🤖 <b>חדשות AI</b>\n" + "\n\n".join(ai) if ai
         else "🤖 <b>חדשות AI</b> — הבינה המלאכותית לקחה הפסקה 😴",
     ])
 
@@ -276,6 +290,8 @@ def _parse_ics(url: str, target_date) -> list:
             if not dtstart:
                 continue
             sv = dtstart.dt
+            
+            # תיקון לוגיקת אזורי זמן ואירועי יום שלם
             if isinstance(sv, datetime):
                 if sv.tzinfo is None:
                     sv = sv.replace(tzinfo=timezone.utc)
@@ -283,8 +299,9 @@ def _parse_ics(url: str, target_date) -> list:
                 edate = sl.date()
                 tstr  = sl.strftime("%H:%M")
             else:
-                edate = sv
+                edate = sv # אירוע של יום שלם מחזיר אובייקט date
                 tstr  = None
+                
             if edate == target_date:
                 summary = esc(str(c.get("SUMMARY", "(ללא שם)")))
                 if tstr:

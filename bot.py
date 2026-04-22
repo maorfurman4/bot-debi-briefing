@@ -35,6 +35,7 @@ except ImportError:
 load_dotenv()
 
 BOT_TOKEN           = os.getenv("BOT_TOKEN", "")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 CHAT_ID             = os.getenv("CHAT_ID", "")
 OPENWEATHER_KEY     = os.getenv("OPENWEATHER_API_KEY", "")
 
@@ -348,7 +349,24 @@ def _parse_ics(url: str, target_date) -> list:
         logger.warning("ICS fetch error: %s", ex)
     return events
 
-
+def summarize_calendar_with_openai(events: list) -> str:
+    if not events:
+        return "שממה ביומן! נצל את הזמן למנוחה או לפיתוח. 🎉"
+    
+    prompt = f"אתה העוזרת האישית דבי. סכמי למאור את הלוז היומי שלו בצורה זורמת, נעימה ומסודרת. חובה לציין את *כל* האירועים והשעות במדויק בלי לפספס שום דבר. הנה האירועים:\n\n{chr(10).join(events)}"
+    
+    url = "https://api.openai.com/v1/chat/completions"
+    headers = {"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"}
+    payload = {
+        "model": "gpt-4o-mini",
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.2
+    }
+    try:
+        resp = requests.post(url, json=payload, headers=headers).json()
+        return "📅 <b>הלוז שלך להיום:</b>\n" + resp['choices'][0]['message']['content']
+    except Exception:
+        return "📅 <b>היומן של מאור להיום:</b>\n" + "\n".join(events)
 def get_calendar() -> str:
     if not CALENDARS:
         return "📅 <b>לו\"ז של מאור</b> — לא מוגדר ב-.env"
@@ -368,12 +386,14 @@ def get_calendar() -> str:
             seen.add(text)
             unique.append(text)
 
-    lines = ["📅 <b>היומן של מאור להיום:</b>"]
-    if unique:
-        lines.extend(unique)
-    else:
-        lines.append("שממה ביומן, מאור! נצל את הזמן למנוחה או לפיתוח. 🎉")
-    return "\n".join(lines)
+    unique = []
+    for key, text in sorted(all_ev, key=lambda x: x[0]):
+        if text not in seen:
+            seen.add(text)
+            unique.append(text)
+
+    # במקום לשרשר את השורות לבד, ניתן ל-OpenAI לעשות את הקסם:
+    return summarize_calendar_with_openai(unique)
 
 
 # ── בניית ההודעה ──────────────────────────────────────────────────────────────

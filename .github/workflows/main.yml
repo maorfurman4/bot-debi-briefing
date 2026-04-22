@@ -19,6 +19,7 @@ jobs:
         run: pip install -r requirements.txt
       - name: Run Deby
         env:
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           BOT_TOKEN:           ${{ secrets.BOT_TOKEN }}
           CHAT_ID:             ${{ secrets.CHAT_ID }}
           OPENWEATHER_API_KEY: ${{ secrets.OPENWEATHER_API_KEY }}

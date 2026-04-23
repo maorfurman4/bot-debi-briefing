@@ -7,3 +7,4 @@ python-dotenv>=1.0
 pytz>=2024.1
 icalendar>=5.0
 deep-translator>=1.11
+recurring-ical-events>=2.0.0

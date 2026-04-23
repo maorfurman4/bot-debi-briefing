@@ -22,6 +22,7 @@ from telegram import Bot
 
 try:
     from icalendar import Calendar as iCal
+    import recurring_ical_events
     ICAL_AVAILABLE = True
 except ImportError:
     ICAL_AVAILABLE = False
@@ -316,35 +317,31 @@ def get_stocks() -> str:
 
 def _parse_ics(url: str, target_date) -> list:
     events = []
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+    headers = {'User-Agent': 'Mozilla/5.0'}
     try:
         resp = requests.get(url, headers=headers, timeout=15)
         resp.raise_for_status()
-        cal  = iCal.from_ical(resp.content)
-        for c in cal.walk():
-            if c.name != "VEVENT":
-                continue
-            dtstart = c.get("DTSTART")
+        
+        # שימוש בספרייה החדשה לתמיכה באירועים חוזרים
+        cal = iCal.from_ical(resp.content)
+        events_on_date = recurring_ical_events.of(cal).at(target_date)
+        
+        for event in events_on_date:
+            summary = esc(str(event.get("SUMMARY", "(ללא שם)")))
+            dtstart = event.get("DTSTART")
+            
             if not dtstart:
                 continue
-            
+                
             sv = dtstart.dt
-            # תיקון אזורי זמן
             if isinstance(sv, dt_module.datetime):
                 if sv.tzinfo is None:
                     sv = sv.replace(tzinfo=timezone.utc)
-                event_date = sv.astimezone(IL_TZ).date()
                 tstr = sv.astimezone(IL_TZ).strftime("%H:%M")
+                events.append((tstr, f"  🕐 {tstr} — {summary}"))
             else:
-                event_date = sv  # אירוע כל היום
-                tstr = None
+                events.append(("00:00", f"  📌 {summary} (כל היום)"))
                 
-            if event_date == target_date:
-                summary = esc(str(c.get("SUMMARY", "(ללא שם)")))
-                if tstr:
-                    events.append((tstr, f"  🕐 {tstr} — {summary}"))
-                else:
-                    events.append(("00:00", f"  📌 {summary} (כל היום)"))
     except Exception as ex:
         logger.warning("ICS fetch error: %s", ex)
     return events
@@ -367,6 +364,7 @@ def summarize_calendar_with_openai(events: list) -> str:
         return "📅 <b>הלוז שלך להיום:</b>\n" + resp['choices'][0]['message']['content']
     except Exception:
         return "📅 <b>היומן של מאור להיום:</b>\n" + "\n".join(events)
+
 def get_calendar() -> str:
     if not CALENDARS:
         return "📅 <b>לו\"ז של מאור</b> — לא מוגדר ב-.env"
@@ -380,21 +378,13 @@ def get_calendar() -> str:
 
     seen = set()
     unique = []
-    # מיון לפי שעה
+    # מיון לפי שעה וסינון כפילויות
     for key, text in sorted(all_ev, key=lambda x: x[0]):
         if text not in seen:
             seen.add(text)
             unique.append(text)
 
-    unique = []
-    for key, text in sorted(all_ev, key=lambda x: x[0]):
-        if text not in seen:
-            seen.add(text)
-            unique.append(text)
-
-    # במקום לשרשר את השורות לבד, ניתן ל-OpenAI לעשות את הקסם:
     return summarize_calendar_with_openai(unique)
-
 
 # ── בניית ההודעה ──────────────────────────────────────────────────────────────
 

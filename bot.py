@@ -275,8 +275,8 @@ def _fetch_news(feeds, keywords, n=5):
 
 
 def get_news() -> str:
-    geo = _fetch_news(GEO_FEEDS, GEO_KW, n=5)
-    ai  = _fetch_news(AI_FEEDS, AI_KW, n=5)
+    geo = _fetch_news(GEO_FEEDS, GEO_KW, n=3)
+    ai  = _fetch_news(AI_FEEDS, AI_KW, n=3)
     
     geo_text = "\n\n".join(geo) if geo else "שקט יחסי בחזית 🕊️"
     ai_text = "\n\n".join(ai) if ai else "הבינה המלאכותית נחה היום 😴"

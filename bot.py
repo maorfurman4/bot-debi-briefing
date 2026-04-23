@@ -322,23 +322,24 @@ def _parse_ics(url: str, target_date) -> list:
         resp = requests.get(url, headers=headers, timeout=15)
         resp.raise_for_status()
         
-        # שימוש בספרייה החדשה לתמיכה באירועים חוזרים
         cal = iCal.from_ical(resp.content)
         events_on_date = recurring_ical_events.of(cal).at(target_date)
         
         for event in events_on_date:
             summary = esc(str(event.get("SUMMARY", "(ללא שם)")))
-            dtstart = event.get("DTSTART")
+            start_dt = event.get("DTSTART").dt
+            end_dt = event.get("DTEND").dt  # משיכת זמן הסיום
             
-            if not dtstart:
-                continue
+            if isinstance(start_dt, dt_module.datetime):
+                # תיקון אזורי זמן לשניהם
+                if start_dt.tzinfo is None: start_dt = start_dt.replace(tzinfo=timezone.utc)
+                if end_dt.tzinfo is None: end_dt = end_dt.replace(tzinfo=timezone.utc)
                 
-            sv = dtstart.dt
-            if isinstance(sv, dt_module.datetime):
-                if sv.tzinfo is None:
-                    sv = sv.replace(tzinfo=timezone.utc)
-                tstr = sv.astimezone(IL_TZ).strftime("%H:%M")
-                events.append((tstr, f"  🕐 {tstr} — {summary}"))
+                t_start = start_dt.astimezone(IL_TZ).strftime("%H:%M")
+                t_end = end_dt.astimezone(IL_TZ).strftime("%H:%M")
+                t_range = f"{t_start}-{t_end}" # יצירת הטווח
+                
+                events.append((t_start, f"  🕐 {t_range} — {summary}"))
             else:
                 events.append(("00:00", f"  📌 {summary} (כל היום)"))
                 

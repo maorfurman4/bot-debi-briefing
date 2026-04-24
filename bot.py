@@ -263,7 +263,7 @@ def get_clothing_recommendation(t_min: float, t_max: float, current_temp: float,
 
     except Exception as e:
         logger.error(f"AI Clothing analysis error: {e}")
-        return "👔 <b>המלצת הסטייליסט:</b> פשוט תלבש משהו נוח וצא לטרוף את העולם! 😎"ח"
+        return "👔 <b>המלצת הסטייליסט:</b> פשוט תלבש משהו נוח וצא לטרוף את העולם! 😎"
 def get_weather() -> str:
     if not OPENWEATHER_KEY:
         return "🌡️ <b>מזג אוויר</b> — מפתח API חסר"

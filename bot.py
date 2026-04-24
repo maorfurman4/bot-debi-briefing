@@ -101,7 +101,7 @@ def _get_google_tasks_service():
             scopes=["https://www.googleapis.com/auth/tasks.readonly"]
         )
         creds.refresh(Request())
-        return build("tasks", "v1", credentials=creds)
+        return ("tasks", "v1", credentials=creds)
     except Exception as e:
         logger.error(f"Failed to load Google Tasks: {e}")
         return None
@@ -416,7 +416,7 @@ def _get_google_tasks_service():
     try:
         from google.oauth2.credentials import Credentials as OAuthCredentials
         from google.auth.transport.requests import Request
-        from googleapiclient.discovery import build
+        from googleapiclient.discovery import 
         
         info = json.loads(creds_json)
         creds = OAuthCredentials(
@@ -427,7 +427,7 @@ def _get_google_tasks_service():
             token_uri="https://oauth2.googleapis.com/token"
         )
         creds.refresh(Request())
-        return build("tasks", "v1", credentials=creds)
+        return ("tasks", "v1", credentials=creds)
     except Exception as e:
         logger.error(f"Tasks Auth Error: {e}")
         return None
@@ -474,21 +474,26 @@ def build_message() -> str:
     days_he  = ["שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת", "ראשון"]
     date_str = now.strftime(f"יום {days_he[now.weekday()]}, %d/%m/%Y")
 
+    # פתיח, מזג אוויר ומניות
     sections = [
         f"🌅 <b>{get_witty_greeting()}</b> 😄\n<i>{date_str}</i>\n{get_transition()}\n{SEP}",
         get_weather(), SEP,
         get_stocks(),  SEP,
-        get_real_google_tasks(),
-        get_calendar(),
     ]
     
-    # נוסיף את רשימת המשימות
+    # משימות - קוראים לפונקציה רק פעם אחת ומכניסים אם יש תוכן
     tasks = get_real_google_tasks()
-    if tasks:
-        sections += [SEP, tasks]
+    if tasks and "אין משימות פתוחות" not in tasks:
+        sections.append(tasks)
+        sections.append(SEP)
+    
+    # יומן
+    sections.append(get_calendar())
         
     sections.append(f"{SEP}\n<i>שיהיה יום מוצלח אלוף! — דבי ✨</i>")
-    return "\n\n".join(sections)
+    
+    # סינון סעיפים ריקים וחיבור ברווח כפול
+    return "\n\n".join([s for s in sections if s.strip()])
 
 # ── שליחה ──────────────────────────────────────────────────────────────────────
 

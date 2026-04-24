@@ -427,7 +427,7 @@ def _get_google_tasks_service():
             token_uri="https://oauth2.googleapis.com/token"
         )
         creds.refresh(Request())
-        return ("tasks", "v1", credentials=creds)
+        return build("tasks", "v1", credentials=creds)
     except Exception as e:
         logger.error(f"Tasks Auth Error: {e}")
         return None

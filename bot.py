@@ -173,10 +173,12 @@ def _visibility_text(vis_m: int) -> str:
 
 def get_dynamic_exercise_time(lat: float, lon: float) -> str:
     try:
+        # שליפת נתונים שעתים ל-24 השעות הקרובות
         om = requests.get(
             f"https://api.open-meteo.com/v1/forecast"
             f"?latitude={lat}&longitude={lon}"
-            f"&hourly=temperature_2m,uv_index&timezone=Asia/Jerusalem",
+            f"&hourly=temperature_2m,uv_index,precipitation_probability,wind_speed_10m"
+            f"&timezone=Asia/Jerusalem&forecast_days=1",
             timeout=8,
         ).json()
         
@@ -184,45 +186,77 @@ def get_dynamic_exercise_time(lat: float, lon: float) -> str:
         times = hourly.get("time", [])
         temps = hourly.get("temperature_2m", [])
         uvs = hourly.get("uv_index", [])
+        precip = hourly.get("precipitation_probability", [])
         
-        today_str = datetime.now(IL_TZ).strftime("%Y-%m-%d")
-        good_hours = []
-        
-        for i, t_str in enumerate(times):
-            if t_str.startswith(today_str):
-                hour = int(t_str[11:13])
-                temp = temps[i]
-                uv = uvs[i]
-                if temp <= 26 and uv < 4 and (5 <= hour <= 22):
-                    good_hours.append(hour)
-        
-        if not good_hours:
-            return "🏃 <b>זמן אימון:</b> חם מדי או קרינה חזקה היום. עדיף במזגן 🧊"
-        
-        ranges = []
-        start = good_hours[0]
-        for j in range(1, len(good_hours)):
-            if good_hours[j] != good_hours[j-1] + 1:
-                ranges.append(f"{start:02d}:00-{good_hours[j-1]:02d}:00")
-                start = good_hours[j]
-        ranges.append(f"{start:02d}:00-{(good_hours[-1]+1):02d}:00")
-        
-        return f"🏃 <b>שעות אימון מומלצות היום:</b> {', '.join(ranges)}"
-    except Exception:
-        return "🏃 <b>זמן אימון:</b> בוקר מוקדם או ערב מאוחר."
+        # בניית מחרוזת נתונים תמציתית עבור ה-AI
+        weather_data_summary = ""
+        for i in range(5, 23): # נתמקד בשעות הערנות 05:00 עד 22:00
+            weather_data_summary += f"{times[i][11:13]}:00 - {temps[i]}°C, UV:{uvs[i]}, גשם:{precip[i]}% | "
 
-def get_clothing_recommendation(t_min: float, t_max: float) -> str:
-    if t_min < 15 and t_max > 24:
-        return "👕 <b>שיטת השכבות היא חובה:</b> בוקר קריר דורש עליונית, אבל מתחת חולצה קצרה. מכנסיים ארוכים קלילים ונעליים סגורות יהיו הכי נוחות להבדלי הטמפרטורה."
-    elif t_max <= 17:
-        return "🧥 <b>יום חורפי:</b> חולצה ארוכה, מעיל, מכנסיים ארוכים עבים ונעליים סגורות או מגפיים."
-    elif t_max > 28:
-        return "🩳 <b>קיץ לוהט:</b> קצר וקליל ככל האפשר! מכנסיים קצרים, סנדלים או נעלי ספורט מאווררות."
-    elif t_min >= 18 and t_max <= 28:
-        return "👕 <b>נעים וקליל:</b> חולצה קצרה, מכנסיים ארוכים דקים או קצרים, וסניקרס נוחות."
-    else:
-        return "👖 <b>סתיו/אביב קלאסי:</b> חולצה קצרה עם ג'קט קל לבוקר/ערב, ג'ינס נוחים ונעליים סגורות."
+        # פנייה ל-OpenAI לניתוח חכם
+        prompt = f"""
+        אתה מאמן כושר אישי מקצועי. קיבלת תחזית מזג אוויר שעתית להיום בישראל:
+        {weather_data_summary}
+        
+        נתח את הנתונים והמלץ על חלון הזמן האידיאלי לאימון חוץ (ריצה/הליכה/מתקנים). 
+        תתייחס לטמפרטורה, עומס חום (UV) וסיכוי לגשם. 
+        כתוב המלצה קצרה (2-3 משפטים), מניעה לפעולה, ושתהיה שונה בכל פעם (לא תבנית קבועה).
+        השתמש באימוג'ים מתאימים. התחל ב: "🏃 המלצת המאמן להיום:"
+        """
 
+        url = "https://api.openai.com/v1/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {OPENAI_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "model": "gpt-4o-mini",
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.8 # טמפרטורה גבוהה לגיוון בניסוח
+        }
+        
+        response = requests.post(url, json=payload, headers=headers, timeout=10)
+        result = response.json()
+        return result['choices'][0]['message']['content'].strip()
+
+    except Exception as e:
+        logger.error(f"AI Exercise analysis error: {e}")
+        return "🏃 <b>זמן אימון:</b> היום כדאי להקשיב לגוף ולמזג האוויר בחוץ."
+
+def get_clothing_recommendation(t_min: float, t_max: float, current_temp: float, desc: str) -> str:
+    try:
+        prompt = f"""
+        אתה סטייליסט אישי (ומעט הומוריסטי) למנהל שיוצא ליום עבודה. 
+        קיבלת את נתוני מזג האוויר להיום:
+        - טמפרטורה עכשיו בבוקר יציאה: {current_temp:.1f}°C
+        - טווח יומי: בין {t_min:.1f}°C ל-{t_max:.1f}°C
+        - תנאי שמיים: {desc}
+        
+        תן המלצת לבוש פרקטית להיום (2-3 משפטים). 
+        * אם יש פער גדול בין הבוקר לצהריים, תדגיש את "שיטת השכבות". 
+        * התייחס למצב השמיים (אם חם מאוד - בגדים נושמים/קצרים, אם גשום - מטרייה/מעיל).
+        * השתמש באימוג'ים מתאימים לבגדים. גוון בניסוחים שלך כדי שזה לא יהיה משעמם!
+        התחל במילים: "👔 המלצת הסטייליסט להיום:"
+        """
+
+        url = "https://api.openai.com/v1/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {OPENAI_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "model": "gpt-4o-mini", # שימוש במודל המהיר והזול מספיק למשימות כאלו
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.8 # דואג שהניסוח יהיה שונה בכל בוקר
+        }
+        
+        response = requests.post(url, json=payload, headers=headers, timeout=10)
+        result = response.json()
+        return result['choices'][0]['message']['content'].strip()
+
+    except Exception as e:
+        logger.error(f"AI Clothing analysis error: {e}")
+        return "👔 <b>המלצת הסטייליסט:</b> נראה שיש לי תקלה במלתחה הבוקר, פשוט תלבש משהו נוח! 😅"
 def get_weather() -> str:
     if not OPENWEATHER_KEY:
         return "🌡️ <b>מזג אוויר</b> — מפתח API חסר"
@@ -263,7 +297,7 @@ def get_weather() -> str:
         sunrise_str = datetime.fromtimestamp(sunrise_ts, tz=IL_TZ).strftime("%H:%M")
         sunset_str  = datetime.fromtimestamp(sunset_ts,  tz=IL_TZ).strftime("%H:%M")
 
-        clothes = get_clothing_recommendation(t_min, t_max)
+        clothes = get_clothing_recommendation(t_min, t_max, temp, desc)
         exercise_text = get_dynamic_exercise_time(lat, lon)
 
         return (

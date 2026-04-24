@@ -283,58 +283,6 @@ def get_weather() -> str:
         logger.error("Weather error: %s", ex)
         return "🌡️ <b>מזג אוויר</b> — שגיאה בטעינה 😅"
 
-# ── חדשות ─────────────────────────────────────────────────────────────────────
-
-GEO_FEEDS = [
-    "https://feeds.reuters.com/reuters/topNews",
-    "https://rss.nytimes.com/services/xml/rss/nyt/World.xml",
-]
-AI_FEEDS = [
-    "https://techcrunch.com/category/artificial-intelligence/feed/",
-    "https://www.theverge.com/rss/ai-artificial-intelligence/index.xml",
-]
-GEO_KW = ["israel", "iran", "hamas", "hezbollah", "gaza", "middle east", "trump", "netanyahu", "idf", "west bank", "war"]
-AI_KW  = ["ai", "artificial intelligence", "openai", "chatgpt", "llm", "gpt", "claude", "gemini", "machine learning", "nvidia"]
-
-def _fetch_news(feeds, keywords, n=5):
-    items = []
-    dramatic_prefixes = ["🚨 דרמה:", "🔥 חשיפה:", "💥 מטורף:", "⚠️ בוער:", "⚡ עדכון חם:", "😱 מטלטל:"]
-    for url in feeds:
-        try:
-            source_name = urlparse(url).netloc.replace("www.", "").split('.')[0].capitalize()
-            for entry in feedparser.parse(url).entries:
-                title = entry.get("title", "")
-                link = entry.get("link", "")
-                summary = clean_html(entry.get("summary", ""))
-                
-                first_sentence = summary.split('.')[0] + "." if summary else ""
-                
-                if any(k.lower() in title.lower() for k in keywords):
-                    translated_title = translate(title)
-                    translated_summary = translate(first_sentence[:120])
-                    prefix = random.choice(dramatic_prefixes)
-                    
-                    items.append(
-                        f"• {prefix} <a href='{link}'>{esc(translated_title)} 🔗</a>\n"
-                        f"  <i>\"{esc(translated_summary)}...\" ({source_name})</i>"
-                    )
-                    if len(items) >= n:
-                        return items
-        except Exception:
-            pass
-    return items
-
-def get_news() -> str:
-    geo = _fetch_news(GEO_FEEDS, GEO_KW, n=3)
-    ai  = _fetch_news(AI_FEEDS, AI_KW, n=3)
-    
-    geo_text = "\n\n".join(geo) if geo else "שקט יחסי בחזית 🕊️"
-    ai_text = "\n\n".join(ai) if ai else "הבינה המלאכותית נחה היום 😴"
-    
-    return (
-        f"🌍 <b>אקטואליה פוליטית (ישראל-ארה\"ב)</b>\n{geo_text}\n\n"
-        f"🤖 <b>חזית ה-AI</b>\n{ai_text}"
-    )
 
 # ── מניות ──────────────────────────────────────────────────────────────────────
 
@@ -471,7 +419,6 @@ def build_message() -> str:
     sections = [
         f"🌅 <b>{get_witty_greeting()}</b> 😄\n<i>{date_str}</i>\n{get_transition()}\n{SEP}",
         get_weather(), SEP,
-        get_news(),    SEP,
         get_stocks(),  SEP,
         get_calendar(),
     ]

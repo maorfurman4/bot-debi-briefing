@@ -1,7 +1,6 @@
 """
-דבי — בוט שגרת בוקר
+דבי — בוט שגרת בוקר (מבוסס 100% AI)
 מריצה פעם אחת, שולחת את התדריך, ויוצאת.
-מופעלת אוטומטית כל יום ע"י GitHub Actions.
 """
 
 import asyncio
@@ -9,7 +8,6 @@ import html
 import logging
 import os
 import re
-import random
 from datetime import datetime, timedelta, timezone
 import datetime as dt_module
 from urllib.parse import urlparse
@@ -36,14 +34,12 @@ except ImportError:
 load_dotenv()
 
 BOT_TOKEN           = os.getenv("BOT_TOKEN", "")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+OPENAI_API_KEY      = os.getenv("OPENAI_API_KEY", "")
 CHAT_ID             = os.getenv("CHAT_ID", "")
 OPENWEATHER_KEY     = os.getenv("OPENWEATHER_API_KEY", "")
 
-# הקישור הסודי שלך מובנה כאן כדי לפתור את בעיית השממה
 DEFAULT_ICS = "https://calendar.google.com/calendar/ical/maorfurman123%40gmail.com/private-b134fd273a4b42e3031d97b6af834849/basic.ics"
 
-# כל לוחות השנה — ICS URLs
 CALENDARS = [url for url in [
     os.getenv("GOOGLE_CALENDAR_ICS_1", DEFAULT_ICS),
     os.getenv("GOOGLE_CALENDAR_ICS_2", ""),
@@ -58,7 +54,7 @@ STOCKS = [
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 logger = logging.getLogger("deby")
-SEP = "─" * 30
+SEP = "──────────────────────────────"
 
 IL_TZ = timezone(timedelta(hours=3))
 
@@ -66,401 +62,190 @@ IL_TZ = timezone(timedelta(hours=3))
 def esc(text: str) -> str:
     return html.escape(str(text))
 
-
 def clean_html(raw_html: str) -> str:
     return re.sub(r'<[^>]+>', '', raw_html) if raw_html else ""
 
-
 def translate(text: str) -> str:
-    """תרגום לעברית — מחזיר את הטקסט המקורי אם נכשל."""
-    if not TRANSLATE_AVAILABLE or not text:
-        return text
+    if not TRANSLATE_AVAILABLE or not text: return text
     try:
-        result = GoogleTranslator(source="auto", target="iw").translate(text[:500])
-        return result or text
+        return GoogleTranslator(source="auto", target="iw").translate(text[:500]) or text
     except Exception:
         return text
 
+# ── 1. איסוף נתונים גולמיים (ללא עיצוב סופי, רק מידע ל-AI) ──────────
 
-# ── מזג אוויר ואימון דינמי ────────────────────────────────────────────────────
-
-def _wind_text(speed_ms: float) -> str:
-    kmh = speed_ms * 3.6
-    if kmh < 2:   return f"שקט ({kmh:.0f} קמ\"ש)"
-    if kmh < 10:  return f"רוח קלה ({kmh:.0f} קמ\"ש)"
-    if kmh < 20:  return f"רוח עדינה ({kmh:.0f} קמ\"ש)"
-    if kmh < 35:  return f"רוח בינונית ({kmh:.0f} קמ\"ש)"
-    if kmh < 55:  return f"רוח חזקה ({kmh:.0f} קמ\"ש)"
-    return f"רוח סוערת! ({kmh:.0f} קמ\"ש)"
-
-
-def _uv_text(uvi: float) -> str:
-    if uvi < 3:   return f"{uvi:.0f} — נמוך 🟢"
-    if uvi < 6:   return f"{uvi:.0f} — בינוני 🟡"
-    if uvi < 8:   return f"{uvi:.0f} — גבוה 🟠"
-    if uvi < 11:  return f"{uvi:.0f} — גבוה מאוד 🔴"
-    return f"{uvi:.0f} — קיצוני ☢️"
-
-
-def _visibility_text(vis_m: int) -> str:
-    km = vis_m / 1000
-    if km >= 10:  return f"מצוינת ({km:.0f} ק\"מ)"
-    if km >= 5:   return f"טובה ({km:.1f} ק\"מ)"
-    if km >= 2:   return f"בינונית ({km:.1f} ק\"מ)"
-    return f"ירודה ({km:.1f} ק\"מ) ⚠️"
-
-
-def get_dynamic_exercise_time(lat: float, lon: float) -> str:
-    """מושך תחזית שעתית ומחשב שעות אידיאליות לאימון לפי חום וקרינה."""
-    try:
-        om = requests.get(
-            f"https://api.open-meteo.com/v1/forecast"
-            f"?latitude={lat}&longitude={lon}"
-            f"&hourly=temperature_2m,uv_index&timezone=Asia/Jerusalem",
-            timeout=8,
-        ).json()
-        
-        hourly = om.get("hourly", {})
-        times = hourly.get("time", [])
-        temps = hourly.get("temperature_2m", [])
-        uvs = hourly.get("uv_index", [])
-        
-        today_str = datetime.now(IL_TZ).strftime("%Y-%m-%d")
-        good_hours = []
-        
-        for i, t_str in enumerate(times):
-            if t_str.startswith(today_str):
-                hour = int(t_str[11:13])
-                temp = temps[i]
-                uv = uvs[i]
-                if temp <= 26 and uv < 4 and (5 <= hour <= 22):
-                    good_hours.append(hour)
-        
-        if not good_hours:
-            return "🏃 <b>זמן אימון:</b> חם מדי או קרינה חזקה היום. עדיף במזגן 🧊"
-        
-        ranges = []
-        start = good_hours[0]
-        for j in range(1, len(good_hours)):
-            if good_hours[j] != good_hours[j-1] + 1:
-                ranges.append(f"{start:02d}:00-{good_hours[j-1]:02d}:00")
-                start = good_hours[j]
-        ranges.append(f"{start:02d}:00-{(good_hours[-1]+1):02d}:00")
-        
-        return f"🏃 <b>שעות אימון מומלצות היום:</b> {', '.join(ranges)}"
-    except Exception:
-        return "🏃 <b>זמן אימון:</b> בוקר מוקדם או ערב מאוחר."
-
-
-def get_clothing_recommendation(t_min: float, t_max: float) -> str:
-    """ממליץ על לבוש מדויק ופרקטי כולל נעליים בהתאם להפרשי טמפרטורות."""
-    if t_min < 15 and t_max > 24:
-        return "👕 <b>שיטת השכבות היא חובה:</b> בוקר קריר דורש עליונית, אבל מתחת חולצה קצרה. מכנסיים ארוכים קלילים ונעליים סגורות יהיו הכי נוחות להבדלי הטמפרטורה."
-    elif t_max <= 17:
-        return "🧥 <b>יום חורפי:</b> חולצה ארוכה, מעיל, מכנסיים ארוכים עבים ונעליים סגורות או מגפיים. אל תתחכם עם קצר."
-    elif t_max > 28:
-        return "🩳 <b>קיץ לוהט:</b> קצר וקליל ככל האפשר! מכנסיים קצרים, סנדלים או נעלי ספורט מאווררות. אל תשכח כובע למשך היום."
-    elif t_min >= 18 and t_max <= 28:
-        return "👕 <b>נעים וקליל:</b> חולצה קצרה, מכנסיים ארוכים דקים או קצרים, וסניקרס נוחות. מזג אוויר אידיאלי."
-    else:
-        return "👖 <b>סתיו/אביב קלאסי:</b> חולצה קצרה עם ג'קט קל לבוקר/ערב, ג'ינס או מכנסי בד נוחים ונעליים סגורות רגילות."
-
-
-def get_weather() -> str:
-    if not OPENWEATHER_KEY:
-        return "🌡️ <b>מזג אוויר</b> — מפתח API חסר"
+def get_raw_weather() -> str:
+    if not OPENWEATHER_KEY: return "אין נתוני מזג אוויר (חסר מפתח API)."
     try:
         ow = requests.get(
-            "https://api.openweathermap.org/data/2.5/weather"
-            f"?q=Tel+Aviv,IL&appid={OPENWEATHER_KEY}&units=metric&lang=he",
-            timeout=10,
+            f"https://api.openweathermap.org/data/2.5/weather?q=Tel+Aviv,IL&appid={OPENWEATHER_KEY}&units=metric&lang=he",
+            timeout=10
         ).json()
+        lat, lon = ow["coord"]["lat"], ow["coord"]["lon"]
         
-        lat = ow["coord"]["lat"]
-        lon = ow["coord"]["lon"]
-        
-        # משיכת מינימום/מקסימום יומי אמיתי מ-Open-Meteo
-        t_max, t_min, uvi_max = 0.0, 0.0, 0.0
+        t_max, t_min = 0.0, 0.0
         try:
             om_daily = requests.get(
-                f"https://api.open-meteo.com/v1/forecast"
-                f"?latitude={lat}&longitude={lon}"
-                f"&daily=temperature_2m_max,temperature_2m_min,uv_index_max&timezone=Asia/Jerusalem",
-                timeout=8,
+                f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&daily=temperature_2m_max,temperature_2m_min,uv_index_max&timezone=Asia/Jerusalem",
+                timeout=8
             ).json()
             t_max = om_daily["daily"]["temperature_2m_max"][0]
             t_min = om_daily["daily"]["temperature_2m_min"][0]
-            uvi_max = om_daily["daily"]["uv_index_max"][0]
-        except Exception:
+        except:
             t_max, t_min = ow["main"]["temp_max"], ow["main"]["temp_min"]
 
-        temp        = ow["main"]["temp"]
-        feels       = ow["main"]["feels_like"]
-        desc        = esc(ow["weather"][0]["description"])
-        humidity    = ow["main"]["humidity"]
-        wind_ms     = ow["wind"]["speed"]
-        visibility  = ow.get("visibility", 10000)
-        sunrise_ts  = ow["sys"]["sunrise"]
-        sunset_ts   = ow["sys"]["sunset"]
-        avg_temp    = (t_max + t_min) / 2
+        temp = ow["main"]["temp"]
+        desc = ow["weather"][0]["description"]
+        
+        # חישוב שעות אימון יבשות
+        om = requests.get(f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&hourly=temperature_2m,uv_index&timezone=Asia/Jerusalem", timeout=8).json()
+        hourly, times, temps, uvs = om.get("hourly", {}), om.get("hourly", {}).get("time", []), om.get("hourly", {}).get("temperature_2m", []), om.get("hourly", {}).get("uv_index", [])
+        today_str = datetime.now(IL_TZ).strftime("%Y-%m-%d")
+        good_hours = [int(t[11:13]) for i, t in enumerate(times) if t.startswith(today_str) and temps[i] <= 26 and uvs[i] < 4 and (5 <= int(t[11:13]) <= 22)]
+        
+        ranges = []
+        if good_hours:
+            start = good_hours[0]
+            for j in range(1, len(good_hours)):
+                if good_hours[j] != good_hours[j-1] + 1:
+                    ranges.append(f"{start:02d}:00-{good_hours[j-1]:02d}:00")
+                    start = good_hours[j]
+            ranges.append(f"{start:02d}:00-{(good_hours[-1]+1):02d}:00")
+        
+        exercise_str = ", ".join(ranges) if ranges else "חם מדי או קרינה גבוהה היום, עדיף במזגן."
 
-        sunrise_str = datetime.fromtimestamp(sunrise_ts, tz=IL_TZ).strftime("%H:%M")
-        sunset_str  = datetime.fromtimestamp(sunset_ts,  tz=IL_TZ).strftime("%H:%M")
-
-        clothes = get_clothing_recommendation(t_min, t_max)
-        exercise_text = get_dynamic_exercise_time(lat, lon)
-
-        return (
-            f"🌡️ <b>מזג אוויר — תל אביב</b>\n"
-            f"טמפ' עכשיו: <b>{temp:.0f}°C</b> | ממוצעת יומית: <b>{avg_temp:.1f}°C</b>\n"
-            f"טווח יומי אמיתי: מקס' {t_max:.0f}° / מינ' {t_min:.0f}°\n"
-            f"תחושה: {feels:.0f}°C | {desc}\n"
-            f"לחות: {humidity}%\n"
-            f"רוח: {_wind_text(wind_ms)}\n"
-            f"נראות: {_visibility_text(visibility)}\n"
-            f"אינדקס UV (שיא להיום): {_uv_text(uvi_max)}\n"
-            f"זריחה: {sunrise_str} 🌅 | שקיעה: {sunset_str} 🌇\n\n"
-            f"👔 <b>לבוש להיום:</b>\n{clothes}\n\n"
-            f"{exercise_text}"
-        )
-    except Exception as ex:
-        logger.error("Weather error: %s", ex)
-        return "🌡️ <b>מזג אוויר</b> — שגיאה בטעינה 😅"
+        return f"טמפ' נוכחית: {temp}°C, מקסימום היום: {t_max}°C, מינימום: {t_min}°C. מצב: {desc}. שעות אידיאליות לאימון (לפי חום/קרינה): {exercise_str}."
+    except Exception as e:
+        return "שגיאה בשליפת נתוני מזג אוויר."
 
 
-# ── חדשות ─────────────────────────────────────────────────────────────────────
-
-GEO_FEEDS = [
-    "https://feeds.reuters.com/reuters/topNews",
-    "https://rss.nytimes.com/services/xml/rss/nyt/World.xml",
-]
-AI_FEEDS = [
-    "https://techcrunch.com/category/artificial-intelligence/feed/",
-    "https://www.theverge.com/rss/ai-artificial-intelligence/index.xml",
-]
-GEO_KW = ["israel", "iran", "hamas", "hezbollah", "gaza", "middle east", "trump", "netanyahu", "idf", "west bank", "war"]
-AI_KW  = ["ai", "artificial intelligence", "openai", "chatgpt", "llm", "gpt", "claude", "gemini", "machine learning", "nvidia"]
-
-
-def _fetch_news(feeds, keywords, n=5):
+def get_raw_news() -> str:
+    feeds = ["https://feeds.reuters.com/reuters/topNews", "https://techcrunch.com/category/artificial-intelligence/feed/"]
+    kw = ["israel", "iran", "hamas", "ai", "artificial intelligence", "openai", "trump"]
     items = []
-    dramatic_prefixes = ["🚨 דרמה:", "🔥 חשיפה:", "💥 מטורף:", "⚠️ בוער:", "⚡ עדכון חם:", "😱 מטלטל:"]
     for url in feeds:
         try:
-            # חילוץ מקור החדשות
-            source_name = urlparse(url).netloc.replace("www.", "").split('.')[0].capitalize()
+            source = urlparse(url).netloc.replace("www.", "").split('.')[0].capitalize()
             for entry in feedparser.parse(url).entries:
                 title = entry.get("title", "")
-                link = entry.get("link", "")
-                summary = clean_html(entry.get("summary", ""))
-                
-                # חילוץ המשפט הראשון עבור התקציר
-                first_sentence = summary.split('.')[0] + "." if summary else ""
-                
-                if any(k.lower() in title.lower() for k in keywords):
+                if any(k.lower() in title.lower() for k in kw):
                     translated_title = translate(title)
-                    translated_summary = translate(first_sentence[:120])
-                    prefix = random.choice(dramatic_prefixes)
-                    
-                    # הוספת לינק ברור וצירוף התקציר תחתיו (פורמט נקי)
-                    items.append(
-                        f"• {prefix} <a href='{link}'>{esc(translated_title)} 🔗</a>\n"
-                        f"  <i>\"{esc(translated_summary)}...\" ({source_name})</i>"
-                    )
-                    if len(items) >= n:
-                        return items
-        except Exception:
-            pass
-    return items
+                    items.append(f"- [{source}] {translated_title} (Link: {entry.get('link', '')})")
+                    if len(items) >= 5: return "\n".join(items)
+        except: pass
+    return "\n".join(items) if items else "אין חדשות דרמטיות הבוקר."
 
 
-def get_news() -> str:
-    geo = _fetch_news(GEO_FEEDS, GEO_KW, n=3)
-    ai  = _fetch_news(AI_FEEDS, AI_KW, n=3)
-    
-    geo_text = "\n\n".join(geo) if geo else "שקט יחסי בחזית 🕊️"
-    ai_text = "\n\n".join(ai) if ai else "הבינה המלאכותית נחה היום 😴"
-    
-    return (
-        f"🌍 <b>אקטואליה פוליטית (ישראל-ארה\"ב)</b>\n{geo_text}\n\n"
-        f"🤖 <b>חזית ה-AI</b>\n{ai_text}"
-    )
-
-
-# ── מניות ──────────────────────────────────────────────────────────────────────
-
-# ── מניות ──────────────────────────────────────────────────────────────────────
-
-# ── מניות ──────────────────────────────────────────────────────────────────────
-
-def get_stocks() -> str:
-    alerts, no_data = [], []
+def get_raw_stocks() -> str:
+    alerts = []
     for ticker in STOCKS:
         try:
-            # משיכת נתוני הטרום/אפטר מרקט ליומיים האחרונים בלבד
             hist = yf.Ticker(ticker).history(period="2d", prepost=True)
-            
-            if len(hist) < 2:
-                no_data.append(ticker)
-                continue
-            
-            # לקיחת הסגירה של אתמול והמחיר העדכני ביותר עכשיו (גם אם זה אפטר מרקט)
-            prev = hist["Close"].iloc[0] 
-            curr = hist["Close"].iloc[-1]
+            if len(hist) < 2: continue
+            prev, curr = hist["Close"].iloc[0], hist["Close"].iloc[-1]
             pct = ((curr - prev) / prev) * 100
-            
-            # בדיקה האם התנועה גדולה מ-5 אחוזים
             if abs(pct) >= 5:
-                icon = "📈" if pct > 0 else "📉"
-                alerts.append(f"{icon} <b>{ticker}</b>: {pct:+.1f}% → ${curr:.2f}")
-        except Exception:
-            no_data.append(ticker)
+                alerts.append(f"{ticker}: {pct:+.1f}% (Now: ${curr:.2f})")
+        except: pass
+    return "\n".join(alerts) if alerts else "אין תנועות מעל 5% במניות במעקב."
 
-    lines = ["📊 <b>מניות (תנועות מעל 5%)</b>"]
-    if alerts:
-        lines.extend(alerts)
-    else:
-        lines.append("השוק שקט למדי, אין דרמות משמעותיות (>5%). 😴")
-    return "\n".join(lines)
-# ── Google Calendar ────────────────────────────────────────────────────────────
 
-# ── Google Calendar ────────────────────────────────────────────────────────────
-
-def _parse_ics(url: str, target_date) -> list:
-    events = []
-    headers = {'User-Agent': 'Mozilla/5.0'}
-    try:
-        resp = requests.get(url, headers=headers, timeout=15)
-        resp.raise_for_status()
-        
-        cal = iCal.from_ical(resp.content)
-        events_on_date = recurring_ical_events.of(cal).at(target_date)
-        
-        for event in events_on_date:
-            summary = esc(str(event.get("SUMMARY", "(ללא שם)")))
-            start_dt = event.get("DTSTART").dt
-            
-            # בדיקה אם מדובר באירוע עם שעות או אירוע של כל היום
-            if isinstance(start_dt, dt_module.datetime):
-                if start_dt.tzinfo is None: start_dt = start_dt.replace(tzinfo=timezone.utc)
-                t_start = start_dt.astimezone(IL_TZ).strftime("%H:%M")
-                
-                # משיכת זמן הסיום בצורה בטוחה
-                end_prop = event.get("DTEND")
-                if end_prop and isinstance(end_prop.dt, dt_module.datetime):
-                    end_dt = end_prop.dt
-                    if end_dt.tzinfo is None: end_dt = end_dt.replace(tzinfo=timezone.utc)
-                    t_end = end_dt.astimezone(IL_TZ).strftime("%H:%M")
-                    t_range = f"{t_start}-{t_end}"
-                else:
-                    t_range = t_start
-                    
-                events.append((t_start, f"  🕐 {t_range} — {summary}"))
-            else:
-                # אירוע של כל היום (Date object) - כמו חגים ומשחקי כדורגל
-                events.append(("00:00", f"  📌 {summary} (כל היום)"))
-                
-    except Exception as ex:
-        logger.warning("ICS fetch error: %s", ex)
-    return events
-
-def summarize_calendar_with_openai(events: list) -> str:
-    if not events:
-        return "שממה ביומן! נצל את הזמן למנוחה או לפיתוח. 🎉"
-    
-    prompt = f"אתה העוזרת האישית דבי. סכמי למאור את הלוז היומי שלו בצורה זורמת, נעימה ומסודרת. חובה לציין את *כל* האירועים והשעות במדויק בלי לפספס שום דבר. הנה האירועים:\n\n{chr(10).join(events)}"
-    
-    url = "https://api.openai.com/v1/chat/completions"
-    headers = {"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"}
-    payload = {
-        "model": "gpt-4o-mini",
-        "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.2
-    }
-    try:
-        resp = requests.post(url, json=payload, headers=headers).json()
-        return "📅 <b>הלוז שלך להיום:</b>\n" + resp['choices'][0]['message']['content']
-    except Exception:
-        return "📅 <b>היומן של מאור להיום:</b>\n" + "\n".join(events)
-
-def get_calendar() -> str:
-    if not CALENDARS:
-        return "📅 <b>לו\"ז של מאור</b> — לא מוגדר ב-.env"
-    if not ICAL_AVAILABLE:
-        return "📅 <b>לו\"ז של מאור</b> — חסרה ספרייה"
-
+def get_raw_calendar() -> str:
+    if not CALENDARS or not ICAL_AVAILABLE: return "מערכת היומן לא זמינה."
     today = datetime.now(IL_TZ).date()
-    all_ev = []
+    events = []
     for url in CALENDARS:
-        all_ev.extend(_parse_ics(url, today))
-
-    seen = set()
-    unique = []
-    # מיון לפי שעה וסינון כפילויות
-    for key, text in sorted(all_ev, key=lambda x: x[0]):
-        if text not in seen:
-            seen.add(text)
-            unique.append(text)
-
-    return summarize_calendar_with_openai(unique)
-
-# ── בניית ההודעה ──────────────────────────────────────────────────────────────
-
-def get_witty_greeting() -> str:
-    """מחזיר פתיח רנדומלי, אנושי ושנון."""
-    greetings = [
-        "בוקר אור מאור! השמש זרחה והעולם לא יכבוש את עצמו.",
-        "קומו קומו מאור! אל תדאג, אני כבר סרקתי הכל בשבילך בזמן שישנת.",
-        "עוד יום, עוד הזדמנות לשבור שיאים. קדימה מאור!",
-        "בוקר טוב בוס. דבי כאן עם כל מה שאתה צריך כדי להתחיל את היום ברגל ימין.",
-        "בוקר טוב! קח נשימה, התארגנתי על התדריך שיעשה לך סדר בבלגן."
-    ]
-    return random.choice(greetings)
+        try:
+            resp = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=15)
+            cal = iCal.from_ical(resp.content)
+            for event in recurring_ical_events.of(cal).at(today):
+                summary = esc(str(event.get("SUMMARY", "(ללא שם)")))
+                start_dt = event.get("DTSTART").dt
+                if isinstance(start_dt, dt_module.datetime):
+                    if start_dt.tzinfo is None: start_dt = start_dt.replace(tzinfo=timezone.utc)
+                    t_start = start_dt.astimezone(IL_TZ).strftime("%H:%M")
+                    end_prop = event.get("DTEND")
+                    if end_prop and isinstance(end_prop.dt, dt_module.datetime):
+                        end_dt = end_prop.dt
+                        if end_dt.tzinfo is None: end_dt = end_dt.replace(tzinfo=timezone.utc)
+                        t_end = end_dt.astimezone(IL_TZ).strftime("%H:%M")
+                        events.append(f"{t_start}-{t_end}: {summary}")
+                    else:
+                        events.append(f"{t_start}: {summary}")
+                else:
+                    events.append(f"כל היום: {summary}")
+        except: pass
+    return "\n".join(list(set(events))) if events else "היומן ריק להיום."
 
 
-def get_transition() -> str:
-    """משפט מעבר אקראי כתחליף ל'קפה בצד'."""
-    transitions = [
-        "בלי יותר מדי חפירות, בוא ניגש לעניינים...",
-        "קפה ביד? יופי, יש לנו לא מעט דברים לעבור עליהם הבוקר.",
-        "תמתח איברים, הנה מה שמחכה לנו היום בעולם האמיתי.",
-        "יאללה, בוא נראה מה העולם תכנן לנו היום.",
-        "מוכן לזה? הנה התקציר המלא שלך:"
-    ]
-    return random.choice(transitions)
+# ── 2. המוח המלא (הפקת כל ההודעה דרך OpenAI) ──────────────────────
+
+def generate_full_message_with_ai(weather: str, news: str, stocks: str, calendar: str) -> str:
+    now = datetime.now(IL_TZ)
+    days_he = ["שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת", "ראשון"]
+    date_str = f"יום {days_he[now.weekday()]}, {now.strftime('%d/%m/%Y')}"
+
+    prompt = f"""
+    אתה 'דבי', העוזרת האישית החכמה, השנונה והקצת עוקצנית של מאור.
+    המטרה שלך היא לכתוב את *כל* תדריך הבוקר של מאור להיום ({date_str}), מההתחלה ועד הסוף, כהודעה אחת מושלמת וזורמת.
+    
+    הנה הנתונים הגולמיים שאספתי עבורך הבוקר:
+    - 🌡️ מזג אוויר ואימון: {weather}
+    - 🌍 חדשות: {news}
+    - 📊 מניות (תנועות מעל 5%): {stocks}
+    - 📅 הלו"ז של מאור: {calendar}
+    
+    משימות חובה לכתיבת ההודעה:
+    1. פתיח אישי: עוקצני בחן, מתייחס ליום בשבוע או למה שמחכה לו בלו"ז/מזג אוויר.
+    2. מזג אוויר והמלצות: שלב את נתוני מזג האוויר בטקסט אנושי. תן המלצת לבוש חכמה על בסיס הטמפרטורות, ופרט בדיוק באילו שעות כדאי לו להתאמן היום (לפי הנתונים שקיבלת).
+    3. חדשות: הצג את החדשות החשובות עם קישורים (השתמש ב-<a href='link'>טקסט</a>).
+    4. מניות: ציין אם יש דרמות, ואם שקט - תעיר על זה.
+    5. לו"ז: סכם את היומן שלו بصורה מסודרת (אם יש משחק של ריאל, תתלהב! אם ריק, תציע לו מנוחה או קידוד).
+    6. פורמט: חובה לחלק את ההודעה לקטגוריות, ולהשתמש בקו מפריד {SEP} בין נושא לנושא. השתמש באימוג'יז, ובתגיות <b> ו-<i> להדגשות.
+    7. חתימה בסוף: משפט פרידה קצר עם השם שלך.
+    
+    חובה להחזיר *רק* את ההודעה המוכנה לשליחה לטלגרם, בפורמט HTML. אל תוסיף הקדמות כמו "הנה ההודעה".
+    """
+
+    if not OPENAI_API_KEY:
+        return "שגיאה: מפתח OpenAI חסר. לא ניתן לייצר הודעה חכמה."
+
+    try:
+        resp = requests.post(
+            "https://api.openai.com/v1/chat/completions",
+            headers={"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"},
+            json={"model": "gpt-4o-mini", "messages": [{"role": "user", "content": prompt}], "temperature": 0.8}
+        ).json()
+        return resp['choices'][0]['message']['content']
+    except Exception as e:
+        logger.error(f"OpenAI Error: {e}")
+        return "שגיאה ביצירת ההודעה מול OpenAI."
 
 
-def build_message() -> str:
-    now      = datetime.now(IL_TZ)
-    days_he  = ["שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת", "ראשון"]
-    date_str = now.strftime(f"יום {days_he[now.weekday()]}, %d/%m/%Y")
-
-    return "\n\n".join([
-        f"🌅 <b>{get_witty_greeting()}</b> 😄\n<i>{date_str}</i>\n{get_transition()}\n{SEP}",
-        get_weather(), SEP,
-        get_news(),    SEP,
-        get_stocks(),  SEP,
-        get_calendar(),
-        f"{SEP}\n<i>שיהיה יום טוב יגבר — דבי ✨</i>",
-    ])
-
-
-# ── שליחה ──────────────────────────────────────────────────────────────────────
+# ── 3. תזמור ושליחה ────────────────────────────────────────────
 
 async def main():
     bot = Bot(token=BOT_TOKEN)
-    msg = build_message()
+    
+    # 1. איסוף המידע
+    weather_raw  = get_raw_weather()
+    news_raw     = get_raw_news()
+    stocks_raw   = get_raw_stocks()
+    calendar_raw = get_raw_calendar()
+    
+    # 2. שליחה למוח החכם לעיבוד וכתיבת ההודעה כולה
+    msg = generate_full_message_with_ai(weather_raw, news_raw, stocks_raw, calendar_raw)
 
+    # 3. שליחה לטלגרם
     if len(msg) <= 4000:
         await bot.send_message(chat_id=CHAT_ID, text=msg, parse_mode="HTML", disable_web_page_preview=True)
     else:
         for section in msg.split(SEP):
             if section.strip():
                 await bot.send_message(
-                    chat_id=CHAT_ID, text=section.strip(), parse_mode="HTML", disable_web_page_preview=True
+                    chat_id=CHAT_ID, text=section.strip() + f"\n{SEP}", parse_mode="HTML", disable_web_page_preview=True
                 )
     logger.info("Done!")
-
 
 if __name__ == "__main__":
     asyncio.run(main())

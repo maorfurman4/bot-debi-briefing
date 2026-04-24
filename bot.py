@@ -313,6 +313,7 @@ def get_stocks() -> str:
 # ── Google Calendar ────────────────────────────────────────────────────────────
 
 def _parse_ics(url: str, target_date) -> list:
+    """מושך אירועים מקובץ ICS ומחזיר רשימה נקייה וממוינת"""
     events = []
     headers = {'User-Agent': 'Mozilla/5.0'}
     try:
@@ -320,72 +321,70 @@ def _parse_ics(url: str, target_date) -> list:
         resp.raise_for_status()
 
         cal = iCal.from_ical(resp.content)
+        # שימוש בספרייה לטיפול באירועים חוזרים
         events_on_date = recurring_ical_events.of(cal).at(target_date)
 
         for event in events_on_date:
             summary = esc(str(event.get("SUMMARY", "(ללא שם)")))
             start_dt = event.get("DTSTART").dt
 
+            # בדיקה אם זה אירוע עם שעה או אירוע של כל היום
             if isinstance(start_dt, dt_module.datetime):
-                if start_dt.tzinfo is None: start_dt = start_dt.replace(tzinfo=timezone.utc)
+                # המרה לאזור הזמן של ישראל
+                if start_dt.tzinfo is None: 
+                    start_dt = start_dt.replace(tzinfo=timezone.utc)
+                
                 t_start = start_dt.astimezone(IL_TZ).strftime("%H:%M")
+                
+                # חישוב שעת סיום אם קיימת
                 end_prop = event.get("DTEND")
                 if end_prop and isinstance(end_prop.dt, dt_module.datetime):
                     end_dt = end_prop.dt
-                    if end_dt.tzinfo is None: end_dt = end_dt.replace(tzinfo=timezone.utc)
+                    if end_dt.tzinfo is None: 
+                        end_dt = end_dt.replace(tzinfo=timezone.utc)
                     t_end = end_dt.astimezone(IL_TZ).strftime("%H:%M")
                     t_range = f"{t_start}-{t_end}"
                 else:
                     t_range = t_start
-                events.append((t_start, f"  🕐 {t_range} — {summary}", "timed"))
+                
+                events.append((t_start, f"🕐 <b>{t_range}</b> - {summary}"))
             else:
-                if not summary.startswith("📌"): 
-                    events.append(("00:00", f"  📌 {summary} (כל היום)", "allday"))
+                # אירוע של כל היום (כמו חגים או ימי הולדת)
+                # מסננים משימות שהתווספו אוטומטית עם 📌 כדי שלא תהיה כפילות
+                if not summary.startswith("📌"):
+                    events.append(("00:00", f"📌 <b>כל היום</b> - {summary}"))
 
     except Exception as ex:
-        logger.warning("ICS fetch error: %s", ex)
+        logger.warning(f"ICS fetch error from {url}: {ex}")
     return events
 
-def summarize_calendar_with_openai(events: list) -> str:
-    if not events:
-        return "שממה ביומן! נצל את הזמן למנוחה או לפיתוח. 🎉"
-    
-    prompt = f"אתה העוזרת האישית דבי. סכמי למאור את הלוז היומי שלו מתוך אירועי היומן בלבד בצורה זורמת, נעימה ומסודרת. צייני את הזמנים. אירועים:\n\n{chr(10).join(events)}"
-    
-    if not OPENAI_API_KEY:
-        return "📅 <b>היומן של מאור להיום:</b>\n" + "\n".join(events)
-
-    url = "https://api.openai.com/v1/chat/completions"
-    headers = {"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"}
-    payload = {
-        "model": "gpt-4o-mini",
-        "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.2
-    }
-    try:
-        resp = requests.post(url, json=payload, headers=headers).json()
-        if "error" in resp:
-            return "📅 <b>היומן של מאור להיום:</b>\n" + "\n".join(events)
-        return "📅 <b>הלוז שלך מתוך היומן להיום:</b>\n" + resp['choices'][0]['message']['content']
-    except Exception:
-        return "📅 <b>היומן של מאור להיום:</b>\n" + "\n".join(events)
-
 def get_calendar() -> str:
+    """מרכזת את כל היומנים לרשימה אחת סופית ללא בינה מלאכותית"""
     if not CALENDARS or not ICAL_AVAILABLE:
         return ""
+    
     today = datetime.now(IL_TZ).date()
     all_ev = []
+    
+    # איסוף מכל הכתובות שהוגדרו
     for url in CALENDARS:
         all_ev.extend(_parse_ics(url, today))
-    seen, unique = set(), []
-    for item in sorted(all_ev, key=lambda x: x[0]):
-        if item[1] not in seen:
-            seen.add(item[1])
-            unique.append(item)
+    
+    # מיון לפי שעה ומניעת כפילויות
+    seen = set()
+    unique_sorted_events = []
+    
+    # מיון לפי שעת ההתחלה (האיבר הראשון בטאפל)
+    for time_key, display_text in sorted(all_ev, key=lambda x: x[0]):
+        if display_text not in seen:
+            seen.add(display_text)
+            unique_sorted_events.append(display_text)
             
-    calendar_items = [text for _, text, kind in unique if kind in ("timed", "allday")]
-    if not calendar_items: return "📅 <b>יומן:</b> היום שלך פנוי לחלוטין מאירועים מתוזמנים."
-    return summarize_calendar_with_openai(calendar_items)
+    if not unique_sorted_events:
+        return "📅 <b>יומן:</b> אין אירועים מתוזמנים להיום. 🎉"
+    
+    # החזרה של רשימה פשוטה ונקייה
+    return "📅 <b>הלו\"ז שלך להיום:</b>\n" + "\n".join(unique_sorted_events)
 
 # ── פתיחים ומעברים ────────────────────────────────────────────────────────────
 
@@ -408,6 +407,65 @@ def get_transition() -> str:
         "מוכן לזה? הנה התקציר המלא שלך:"
     ]
     return random.choice(transitions)
+def _get_google_tasks_service():
+    """מתחברת ל-API של Google Tasks באמצעות ה-Secret מהגיטהאב"""
+    creds_json = os.getenv("GOOGLE_TASKS_CREDENTIALS")
+    if not creds_json:
+        logger.warning("GOOGLE_TASKS_CREDENTIALS missing!")
+        return None
+    try:
+        from google.oauth2.credentials import Credentials as OAuthCredentials
+        from google.auth.transport.requests import Request
+        from googleapiclient.discovery import build
+        
+        info = json.loads(creds_json)
+        creds = OAuthCredentials(
+            token=None,
+            refresh_token=info.get("refresh_token"),
+            client_id=info.get("client_id"),
+            client_secret=info.get("client_secret"),
+            token_uri="https://oauth2.googleapis.com/token"
+        )
+        creds.refresh(Request())
+        return build("tasks", "v1", credentials=creds)
+    except Exception as e:
+        logger.error(f"Tasks Auth Error: {e}")
+        return None
+
+def get_real_google_tasks() -> str:
+    """שולפת משימות פתוחות להיום מ-Google Tasks"""
+    service = _get_google_tasks_service()
+    if not service:
+        return ""
+    
+    try:
+        # שליפת המשימות שלא הושלמו מהרשימה הראשית
+        results = service.tasks().list(tasklist='@default', showCompleted=False).execute()
+        items = results.get('items', [])
+        
+        if not items:
+            return "📋 <b>משימות:</b> אין משימות פתוחות. תענוג! 🎉"
+
+        today_str = datetime.now(IL_TZ).strftime("%Y-%m-%d")
+        task_lines = []
+        
+        for task in items:
+            title = esc(task.get('title', '(ללא כותרת)'))
+            due = task.get('due') # תאריך יעד בפורמט RFC3339
+            
+            # אם אין תאריך יעד או שהתאריך הוא היום - נציג את המשימה
+            if not due or today_str in due:
+                task_lines.append(f"✅ {title}")
+
+        if not task_lines:
+            return "" # אם יש משימות אבל הן לא להיום, לא נציג סעיף ריק
+            
+        return "📋 <b>משימות להיום:</b>\n" + "\n".join(task_lines)
+    except Exception as e:
+        logger.error(f"Tasks Fetch Error: {e}")
+        return "📋 <b>משימות:</b> תקלה בשליפת נתונים."
+
+
 
 # ── בניית ההודעה ──────────────────────────────────────────────────────────────
 
@@ -420,6 +478,7 @@ def build_message() -> str:
         f"🌅 <b>{get_witty_greeting()}</b> 😄\n<i>{date_str}</i>\n{get_transition()}\n{SEP}",
         get_weather(), SEP,
         get_stocks(),  SEP,
+        get_real_google_tasks(),
         get_calendar(),
     ]
     

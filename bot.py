@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 דבי — בוט שגרת בוקר
 מריצה פעם אחת, שולחת את התדריך, ויוצאת.
@@ -10,6 +11,7 @@ import logging
 import os
 import re
 import random
+import json
 from datetime import datetime, timedelta, timezone
 import datetime as dt_module
 from urllib.parse import urlparse
@@ -19,6 +21,11 @@ import requests
 import yfinance as yf
 from dotenv import load_dotenv
 from telegram import Bot
+
+# ספריות Google API
+from google.oauth2.credentials import Credentials as OAuthCredentials
+from google.auth.transport.requests import Request
+from googleapiclient.discovery import build
 
 try:
     from icalendar import Calendar as iCal
@@ -35,16 +42,14 @@ except ImportError:
 
 load_dotenv()
 
-# הוספת .strip() מנקה אוטומטית רווחים נסתרים או שורות חדשות שהועתקו בטעות לגיטהאב
 BOT_TOKEN           = os.getenv("BOT_TOKEN", "").strip()
 OPENAI_API_KEY      = os.getenv("OPENAI_API_KEY", "").strip()
 CHAT_ID             = os.getenv("CHAT_ID", "").strip()
 OPENWEATHER_KEY     = os.getenv("OPENWEATHER_API_KEY", "").strip()
+GOOGLE_TASKS_CREDS  = os.getenv("GOOGLE_TASKS_CREDENTIALS", "").strip()
 
-# הקישור הסודי שלך מובנה כאן כדי לפתור את בעיית השממה
 DEFAULT_ICS = "https://calendar.google.com/calendar/ical/maorfurman123%40gmail.com/private-b134fd273a4b42e3031d97b6af834849/basic.ics"
 
-# כל לוחות השנה — ICS URLs
 CALENDARS = [url for url in [
     os.getenv("GOOGLE_CALENDAR_ICS_1", DEFAULT_ICS),
     os.getenv("GOOGLE_CALENDAR_ICS_2", ""),
@@ -67,13 +72,10 @@ IL_TZ = timezone(timedelta(hours=3))
 def esc(text: str) -> str:
     return html.escape(str(text))
 
-
 def clean_html(raw_html: str) -> str:
     return re.sub(r'<[^>]+>', '', raw_html) if raw_html else ""
 
-
 def translate(text: str) -> str:
-    """תרגום לעברית — מחזיר את הטקסט המקורי אם נכשל."""
     if not TRANSLATE_AVAILABLE or not text:
         return text
     try:
@@ -82,6 +84,67 @@ def translate(text: str) -> str:
     except Exception:
         return text
 
+# ── Google Tasks API ─────────────────────────────────────────────────────────
+
+def _get_google_tasks_service():
+    if not GOOGLE_TASKS_CREDS:
+        logger.warning("GOOGLE_TASKS_CREDENTIALS is missing.")
+        return None
+    try:
+        creds_info = json.loads(GOOGLE_TASKS_CREDS)
+        creds = OAuthCredentials(
+            token=None,
+            refresh_token=creds_info.get("refresh_token"),
+            client_id=creds_info.get("client_id"),
+            client_secret=creds_info.get("client_secret"),
+            token_uri=creds_info.get("token_uri", "https://oauth2.googleapis.com/token"),
+            scopes=["https://www.googleapis.com/auth/tasks.readonly"]
+        )
+        creds.refresh(Request())
+        return build("tasks", "v1", credentials=creds)
+    except Exception as e:
+        logger.error(f"Failed to load Google Tasks: {e}")
+        return None
+
+def get_real_google_tasks() -> str:
+    service = _get_google_tasks_service()
+    if not service:
+        return ""
+    
+    try:
+        results = service.tasks().list(tasklist='@default', showCompleted=False).execute()
+        items = results.get('items', [])
+        
+        if not items:
+            return "📋 <b>משימות:</b> הכל נקי! אין לך משימות פתוחות. 🎉"
+
+        today_str = datetime.now(IL_TZ).strftime("%Y-%m-%d")
+        today_tasks = []
+        no_date_tasks = []
+
+        for task in items:
+            title = task.get('title', '(ללא כותרת)')
+            due = task.get('due')
+            
+            if due and today_str in due:
+                today_tasks.append(f"  ✅ {esc(title)}")
+            elif not due:
+                no_date_tasks.append(f"  🔹 {esc(title)}")
+
+        lines = ["📋 <b>משימות מ-Google Tasks:</b>"]
+        if today_tasks:
+            lines.append("<b>משימות להיום:</b>")
+            lines.extend(today_tasks)
+        
+        if no_date_tasks:
+            if today_tasks: lines.append("") 
+            lines.append("<b>משימות כלליות:</b>")
+            lines.extend(no_date_tasks[:5]) # נציג רק עד 5 כדי לא להציף את ההודעה
+            
+        return "\n".join(lines) if (today_tasks or no_date_tasks) else ""
+    except Exception as e:
+        logger.error(f"Error fetching Google Tasks: {e}")
+        return "📋 <b>משימות:</b> תקלת התחברות ל-Google Tasks."
 
 # ── מזג אוויר ואימון דינמי ────────────────────────────────────────────────────
 
@@ -94,14 +157,12 @@ def _wind_text(speed_ms: float) -> str:
     if kmh < 55:  return f"רוח חזקה ({kmh:.0f} קמ\"ש)"
     return f"רוח סוערת! ({kmh:.0f} קמ\"ש)"
 
-
 def _uv_text(uvi: float) -> str:
     if uvi < 3:   return f"{uvi:.0f} — נמוך 🟢"
     if uvi < 6:   return f"{uvi:.0f} — בינוני 🟡"
     if uvi < 8:   return f"{uvi:.0f} — גבוה 🟠"
     if uvi < 11:  return f"{uvi:.0f} — גבוה מאוד 🔴"
     return f"{uvi:.0f} — קיצוני ☢️"
-
 
 def _visibility_text(vis_m: int) -> str:
     km = vis_m / 1000
@@ -110,9 +171,7 @@ def _visibility_text(vis_m: int) -> str:
     if km >= 2:   return f"בינונית ({km:.1f} ק\"מ)"
     return f"ירודה ({km:.1f} ק\"מ) ⚠️"
 
-
 def get_dynamic_exercise_time(lat: float, lon: float) -> str:
-    """מושך תחזית שעתית ומחשב שעות אידיאליות לאימון לפי חום וקרינה."""
     try:
         om = requests.get(
             f"https://api.open-meteo.com/v1/forecast"
@@ -152,20 +211,17 @@ def get_dynamic_exercise_time(lat: float, lon: float) -> str:
     except Exception:
         return "🏃 <b>זמן אימון:</b> בוקר מוקדם או ערב מאוחר."
 
-
 def get_clothing_recommendation(t_min: float, t_max: float) -> str:
-    """ממליץ על לבוש מדויק ופרקטי כולל נעליים בהתאם להפרשי טמפרטורות."""
     if t_min < 15 and t_max > 24:
         return "👕 <b>שיטת השכבות היא חובה:</b> בוקר קריר דורש עליונית, אבל מתחת חולצה קצרה. מכנסיים ארוכים קלילים ונעליים סגורות יהיו הכי נוחות להבדלי הטמפרטורה."
     elif t_max <= 17:
-        return "🧥 <b>יום חורפי:</b> חולצה ארוכה, מעיל, מכנסיים ארוכים עבים ונעליים סגורות או מגפיים. אל תתחכם עם קצר."
+        return "🧥 <b>יום חורפי:</b> חולצה ארוכה, מעיל, מכנסיים ארוכים עבים ונעליים סגורות או מגפיים."
     elif t_max > 28:
-        return "🩳 <b>קיץ לוהט:</b> קצר וקליל ככל האפשר! מכנסיים קצרים, סנדלים או נעלי ספורט מאווררות. אל תשכח כובע למשך היום."
+        return "🩳 <b>קיץ לוהט:</b> קצר וקליל ככל האפשר! מכנסיים קצרים, סנדלים או נעלי ספורט מאווררות."
     elif t_min >= 18 and t_max <= 28:
-        return "👕 <b>נעים וקליל:</b> חולצה קצרה, מכנסיים ארוכים דקים או קצרים, וסניקרס נוחות. מזג אוויר אידיאלי."
+        return "👕 <b>נעים וקליל:</b> חולצה קצרה, מכנסיים ארוכים דקים או קצרים, וסניקרס נוחות."
     else:
-        return "👖 <b>סתיו/אביב קלאסי:</b> חולצה קצרה עם ג'קט קל לבוקר/ערב, ג'ינס או מכנסי בד נוחים ונעליים סגורות רגילות."
-
+        return "👖 <b>סתיו/אביב קלאסי:</b> חולצה קצרה עם ג'קט קל לבוקר/ערב, ג'ינס נוחים ונעליים סגורות."
 
 def get_weather() -> str:
     if not OPENWEATHER_KEY:
@@ -180,7 +236,6 @@ def get_weather() -> str:
         lat = ow["coord"]["lat"]
         lon = ow["coord"]["lon"]
         
-        # משיכת מינימום/מקסימום יומי אמיתי מ-Open-Meteo
         t_max, t_min, uvi_max = 0.0, 0.0, 0.0
         try:
             om_daily = requests.get(
@@ -228,7 +283,6 @@ def get_weather() -> str:
         logger.error("Weather error: %s", ex)
         return "🌡️ <b>מזג אוויר</b> — שגיאה בטעינה 😅"
 
-
 # ── חדשות ─────────────────────────────────────────────────────────────────────
 
 GEO_FEEDS = [
@@ -242,20 +296,17 @@ AI_FEEDS = [
 GEO_KW = ["israel", "iran", "hamas", "hezbollah", "gaza", "middle east", "trump", "netanyahu", "idf", "west bank", "war"]
 AI_KW  = ["ai", "artificial intelligence", "openai", "chatgpt", "llm", "gpt", "claude", "gemini", "machine learning", "nvidia"]
 
-
 def _fetch_news(feeds, keywords, n=5):
     items = []
     dramatic_prefixes = ["🚨 דרמה:", "🔥 חשיפה:", "💥 מטורף:", "⚠️ בוער:", "⚡ עדכון חם:", "😱 מטלטל:"]
     for url in feeds:
         try:
-            # חילוץ מקור החדשות
             source_name = urlparse(url).netloc.replace("www.", "").split('.')[0].capitalize()
             for entry in feedparser.parse(url).entries:
                 title = entry.get("title", "")
                 link = entry.get("link", "")
                 summary = clean_html(entry.get("summary", ""))
                 
-                # חילוץ המשפט הראשון עבור התקציר
                 first_sentence = summary.split('.')[0] + "." if summary else ""
                 
                 if any(k.lower() in title.lower() for k in keywords):
@@ -263,7 +314,6 @@ def _fetch_news(feeds, keywords, n=5):
                     translated_summary = translate(first_sentence[:120])
                     prefix = random.choice(dramatic_prefixes)
                     
-                    # הוספת לינק ברור וצירוף התקציר תחתיו (פורמט נקי)
                     items.append(
                         f"• {prefix} <a href='{link}'>{esc(translated_title)} 🔗</a>\n"
                         f"  <i>\"{esc(translated_summary)}...\" ({source_name})</i>"
@@ -273,7 +323,6 @@ def _fetch_news(feeds, keywords, n=5):
         except Exception:
             pass
     return items
-
 
 def get_news() -> str:
     geo = _fetch_news(GEO_FEEDS, GEO_KW, n=3)
@@ -287,14 +336,12 @@ def get_news() -> str:
         f"🤖 <b>חזית ה-AI</b>\n{ai_text}"
     )
 
-
 # ── מניות ──────────────────────────────────────────────────────────────────────
 
 def get_stocks() -> str:
     alerts, no_data = [], []
     for ticker in STOCKS:
         try:
-            # שימוש ב-2d ו-prepost=True כדי לא לפספס אירועי אפטר מרקט דרמטיים
             hist = yf.Ticker(ticker).history(period="2d", prepost=True)
             if len(hist) < 2:
                 no_data.append(ticker)
@@ -302,7 +349,6 @@ def get_stocks() -> str:
             prev, curr = hist["Close"].iloc[0], hist["Close"].iloc[-1]
             pct = ((curr - prev) / prev) * 100
             
-            # בדיקה האם התנועה גדולה מ-5 אחוזים
             if abs(pct) >= 5:
                 icon = "📈" if pct > 0 else "📉"
                 alerts.append(f"{icon} <b>{ticker}</b>: {pct:+.1f}% → ${curr:.2f}")
@@ -316,11 +362,9 @@ def get_stocks() -> str:
         lines.append("השוק שקט למדי, אין דרמות משמעותיות (>5%). 😴")
     return "\n".join(lines)
 
-
 # ── Google Calendar ────────────────────────────────────────────────────────────
 
 def _parse_ics(url: str, target_date) -> list:
-    """Returns list of (sort_key, display_text, kind) where kind is 'timed'|'task'|'allday'."""
     events = []
     headers = {'User-Agent': 'Mozilla/5.0'}
     try:
@@ -347,23 +391,18 @@ def _parse_ics(url: str, target_date) -> list:
                     t_range = t_start
                 events.append((t_start, f"  🕐 {t_range} — {summary}", "timed"))
             else:
-                # All-day: tasks added by task_sync start with "📌"
-                if summary.startswith("📌"):
-                    clean = summary[1:].strip()
-                    events.append(("00:00", f"  ✅ {clean}", "task"))
-                else:
+                if not summary.startswith("📌"): 
                     events.append(("00:00", f"  📌 {summary} (כל היום)", "allday"))
 
     except Exception as ex:
         logger.warning("ICS fetch error: %s", ex)
     return events
 
-
 def summarize_calendar_with_openai(events: list) -> str:
     if not events:
         return "שממה ביומן! נצל את הזמן למנוחה או לפיתוח. 🎉"
     
-    prompt = f"אתה העוזרת האישית דבי. סכמי למאור את הלוז היומי שלו בצורה זורמת, נעימה ומסודרת. חובה לציין את *כל* האירועים והשעות במדויק בלי לפספס שום דבר. הנה האירועים:\n\n{chr(10).join(events)}"
+    prompt = f"אתה העוזרת האישית דבי. סכמי למאור את הלוז היומי שלו מתוך אירועי היומן בלבד בצורה זורמת, נעימה ומסודרת. צייני את הזמנים. אירועים:\n\n{chr(10).join(events)}"
     
     if not OPENAI_API_KEY:
         return "📅 <b>היומן של מאור להיום:</b>\n" + "\n".join(events)
@@ -378,16 +417,14 @@ def summarize_calendar_with_openai(events: list) -> str:
     try:
         resp = requests.post(url, json=payload, headers=headers).json()
         if "error" in resp:
-            logger.error("OpenAI error: %s", resp["error"])
             return "📅 <b>היומן של מאור להיום:</b>\n" + "\n".join(events)
-        return "📅 <b>הלוז שלך להיום:</b>\n" + resp['choices'][0]['message']['content']
+        return "📅 <b>הלוז שלך מתוך היומן להיום:</b>\n" + resp['choices'][0]['message']['content']
     except Exception:
         return "📅 <b>היומן של מאור להיום:</b>\n" + "\n".join(events)
 
-
-def _get_all_events() -> list:
+def get_calendar() -> str:
     if not CALENDARS or not ICAL_AVAILABLE:
-        return []
+        return ""
     today = datetime.now(IL_TZ).date()
     all_ev = []
     for url in CALENDARS:
@@ -397,34 +434,14 @@ def _get_all_events() -> list:
         if item[1] not in seen:
             seen.add(item[1])
             unique.append(item)
-    return unique
-
-
-def get_calendar() -> str:
-    if not CALENDARS:
-        return "📅 <b>לו\"ז של מאור</b> — לא מוגדר ב-.env"
-    if not ICAL_AVAILABLE:
-        return "📅 <b>לו\"ז של מאור</b> — חסרה ספרייה"
-
-    events = _get_all_events()
-    # Only timed events + non-task all-day events (holidays etc.)
-    calendar_items = [text for _, text, kind in events if kind in ("timed", "allday")]
+            
+    calendar_items = [text for _, text, kind in unique if kind in ("timed", "allday")]
+    if not calendar_items: return "📅 <b>יומן:</b> היום שלך פנוי לחלוטין מאירועים מתוזמנים."
     return summarize_calendar_with_openai(calendar_items)
 
-
-def get_tasks() -> str:
-    events = _get_all_events()
-    tasks = [text for _, text, kind in events if kind == "task"]
-    if not tasks:
-        return ""
-    lines = ["📋 <b>משימות להיום:</b>"] + tasks
-    return "\n".join(lines)
-
-
-# ── בניית ההודעה ──────────────────────────────────────────────────────────────
+# ── פתיחים ומעברים ────────────────────────────────────────────────────────────
 
 def get_witty_greeting() -> str:
-    """מחזיר פתיח רנדומלי, אנושי ושנון."""
     greetings = [
         "בוקר אור מאור! השמש זרחה והעולם לא יכבוש את עצמו.",
         "קומו קומו מאור! אל תדאג, אני כבר סרקתי הכל בשבילך בזמן שישנת.",
@@ -434,9 +451,7 @@ def get_witty_greeting() -> str:
     ]
     return random.choice(greetings)
 
-
 def get_transition() -> str:
-    """משפט מעבר אקראי כתחליף ל'קפה בצד'."""
     transitions = [
         "בלי יותר מדי חפירות, בוא ניגש לעניינים...",
         "קפה ביד? יופי, יש לנו לא מעט דברים לעבור עליהם הבוקר.",
@@ -446,6 +461,7 @@ def get_transition() -> str:
     ]
     return random.choice(transitions)
 
+# ── בניית ההודעה ──────────────────────────────────────────────────────────────
 
 def build_message() -> str:
     now      = datetime.now(IL_TZ)
@@ -459,12 +475,14 @@ def build_message() -> str:
         get_stocks(),  SEP,
         get_calendar(),
     ]
-    tasks = get_tasks()
+    
+    # נוסיף את רשימת המשימות
+    tasks = get_real_google_tasks()
     if tasks:
         sections += [SEP, tasks]
-    sections.append(f"{SEP}\n<i>שיהיה יום טוב יגבר ! — דבי ✨</i>")
+        
+    sections.append(f"{SEP}\n<i>שיהיה יום מוצלח אלוף! — דבי ✨</i>")
     return "\n\n".join(sections)
-
 
 # ── שליחה ──────────────────────────────────────────────────────────────────────
 
@@ -477,11 +495,11 @@ async def main():
     else:
         for section in msg.split(SEP):
             if section.strip():
+                # הוספת קו מפריד חזרה כדי לשמור על עיצוב נקי גם בהודעות מפוצלות
                 await bot.send_message(
-                    chat_id=CHAT_ID, text=section.strip(), parse_mode="HTML", disable_web_page_preview=True
+                    chat_id=CHAT_ID, text=f"{section.strip()}\n{SEP}", parse_mode="HTML", disable_web_page_preview=True
                 )
     logger.info("Done!")
-
 
 if __name__ == "__main__":
     asyncio.run(main())

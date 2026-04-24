@@ -320,25 +320,23 @@ def get_stocks() -> str:
 # ── Google Calendar ────────────────────────────────────────────────────────────
 
 def _parse_ics(url: str, target_date) -> list:
+    """Returns list of (sort_key, display_text, kind) where kind is 'timed'|'task'|'allday'."""
     events = []
     headers = {'User-Agent': 'Mozilla/5.0'}
     try:
         resp = requests.get(url, headers=headers, timeout=15)
         resp.raise_for_status()
-        
+
         cal = iCal.from_ical(resp.content)
         events_on_date = recurring_ical_events.of(cal).at(target_date)
-        
+
         for event in events_on_date:
             summary = esc(str(event.get("SUMMARY", "(ללא שם)")))
             start_dt = event.get("DTSTART").dt
-            
-            # בדיקה אם מדובר באירוע עם שעות או אירוע של כל היום
+
             if isinstance(start_dt, dt_module.datetime):
                 if start_dt.tzinfo is None: start_dt = start_dt.replace(tzinfo=timezone.utc)
                 t_start = start_dt.astimezone(IL_TZ).strftime("%H:%M")
-                
-                # משיכת זמן הסיום בצורה בטוחה
                 end_prop = event.get("DTEND")
                 if end_prop and isinstance(end_prop.dt, dt_module.datetime):
                     end_dt = end_prop.dt
@@ -347,12 +345,15 @@ def _parse_ics(url: str, target_date) -> list:
                     t_range = f"{t_start}-{t_end}"
                 else:
                     t_range = t_start
-                    
-                events.append((t_start, f"  🕐 {t_range} — {summary}"))
+                events.append((t_start, f"  🕐 {t_range} — {summary}", "timed"))
             else:
-                # אירוע של כל היום (Date object) - כמו חגים ומשחקי כדורגל
-                events.append(("00:00", f"  📌 {summary} (כל היום)"))
-                
+                # All-day: tasks added by task_sync start with "📌"
+                if summary.startswith("📌"):
+                    clean = summary[1:].strip()
+                    events.append(("00:00", f"  ✅ {clean}", "task"))
+                else:
+                    events.append(("00:00", f"  📌 {summary} (כל היום)", "allday"))
+
     except Exception as ex:
         logger.warning("ICS fetch error: %s", ex)
     return events
@@ -384,26 +385,40 @@ def summarize_calendar_with_openai(events: list) -> str:
         return "📅 <b>היומן של מאור להיום:</b>\n" + "\n".join(events)
 
 
+def _get_all_events() -> list:
+    if not CALENDARS or not ICAL_AVAILABLE:
+        return []
+    today = datetime.now(IL_TZ).date()
+    all_ev = []
+    for url in CALENDARS:
+        all_ev.extend(_parse_ics(url, today))
+    seen, unique = set(), []
+    for item in sorted(all_ev, key=lambda x: x[0]):
+        if item[1] not in seen:
+            seen.add(item[1])
+            unique.append(item)
+    return unique
+
+
 def get_calendar() -> str:
     if not CALENDARS:
         return "📅 <b>לו\"ז של מאור</b> — לא מוגדר ב-.env"
     if not ICAL_AVAILABLE:
         return "📅 <b>לו\"ז של מאור</b> — חסרה ספרייה"
 
-    today = datetime.now(IL_TZ).date()
-    all_ev = []
-    for url in CALENDARS:
-        all_ev.extend(_parse_ics(url, today))
+    events = _get_all_events()
+    # Only timed events + non-task all-day events (holidays etc.)
+    calendar_items = [text for _, text, kind in events if kind in ("timed", "allday")]
+    return summarize_calendar_with_openai(calendar_items)
 
-    seen = set()
-    unique = []
-    # מיון לפי שעה וסינון כפילויות
-    for key, text in sorted(all_ev, key=lambda x: x[0]):
-        if text not in seen:
-            seen.add(text)
-            unique.append(text)
 
-    return summarize_calendar_with_openai(unique)
+def get_tasks() -> str:
+    events = _get_all_events()
+    tasks = [text for _, text, kind in events if kind == "task"]
+    if not tasks:
+        return ""
+    lines = ["📋 <b>משימות להיום:</b>"] + tasks
+    return "\n".join(lines)
 
 
 # ── בניית ההודעה ──────────────────────────────────────────────────────────────
@@ -437,14 +452,18 @@ def build_message() -> str:
     days_he  = ["שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת", "ראשון"]
     date_str = now.strftime(f"יום {days_he[now.weekday()]}, %d/%m/%Y")
 
-    return "\n\n".join([
+    sections = [
         f"🌅 <b>{get_witty_greeting()}</b> 😄\n<i>{date_str}</i>\n{get_transition()}\n{SEP}",
         get_weather(), SEP,
         get_news(),    SEP,
         get_stocks(),  SEP,
         get_calendar(),
-        f"{SEP}\n<i>שיהיה יום טוב יגבר ! — דבי ✨</i>",
-    ])
+    ]
+    tasks = get_tasks()
+    if tasks:
+        sections += [SEP, tasks]
+    sections.append(f"{SEP}\n<i>שיהיה יום טוב יגבר ! — דבי ✨</i>")
+    return "\n\n".join(sections)
 
 
 # ── שליחה ──────────────────────────────────────────────────────────────────────

@@ -289,16 +289,21 @@ def get_news() -> str:
 
 # ── מניות ──────────────────────────────────────────────────────────────────────
 
+# ── מניות ──────────────────────────────────────────────────────────────────────
+
 def get_stocks() -> str:
     alerts, no_data = [], []
     for ticker in STOCKS:
         try:
-            hist = yf.Ticker(ticker).history(period="5d")
+            # הוספנו prepost=True כדי לכלול מסחר מחוץ לשעות הרגילות (אפטר מרקט וטרום מסחר)
+            hist = yf.Ticker(ticker).history(period="5d", prepost=True)
             if len(hist) < 2:
                 no_data.append(ticker)
                 continue
             prev, curr = hist["Close"].iloc[-2], hist["Close"].iloc[-1]
             pct = ((curr - prev) / prev) * 100
+            
+            # בדיקה האם התנועה גדולה מ-5 אחוזים
             if abs(pct) >= 5:
                 icon = "📈" if pct > 0 else "📉"
                 alerts.append(f"{icon} <b>{ticker}</b>: {pct:+.1f}% → ${curr:.2f}")
@@ -309,9 +314,10 @@ def get_stocks() -> str:
     if alerts:
         lines.extend(alerts)
     else:
-        lines.append("השוק שקט למדי, אין דרמות. 😴")
+        lines.append("השוק שקט למדי, אין דרמות משמעותיות (>5%). 😴")
     return "\n".join(lines)
 
+# ── Google Calendar ────────────────────────────────────────────────────────────
 
 # ── Google Calendar ────────────────────────────────────────────────────────────
 
@@ -328,19 +334,25 @@ def _parse_ics(url: str, target_date) -> list:
         for event in events_on_date:
             summary = esc(str(event.get("SUMMARY", "(ללא שם)")))
             start_dt = event.get("DTSTART").dt
-            end_dt = event.get("DTEND").dt  # משיכת זמן הסיום
             
+            # בדיקה אם מדובר באירוע עם שעות או אירוע של כל היום
             if isinstance(start_dt, dt_module.datetime):
-                # תיקון אזורי זמן לשניהם
                 if start_dt.tzinfo is None: start_dt = start_dt.replace(tzinfo=timezone.utc)
-                if end_dt.tzinfo is None: end_dt = end_dt.replace(tzinfo=timezone.utc)
-                
                 t_start = start_dt.astimezone(IL_TZ).strftime("%H:%M")
-                t_end = end_dt.astimezone(IL_TZ).strftime("%H:%M")
-                t_range = f"{t_start}-{t_end}" # יצירת הטווח
                 
+                # משיכת זמן הסיום בצורה בטוחה
+                end_prop = event.get("DTEND")
+                if end_prop and isinstance(end_prop.dt, dt_module.datetime):
+                    end_dt = end_prop.dt
+                    if end_dt.tzinfo is None: end_dt = end_dt.replace(tzinfo=timezone.utc)
+                    t_end = end_dt.astimezone(IL_TZ).strftime("%H:%M")
+                    t_range = f"{t_start}-{t_end}"
+                else:
+                    t_range = t_start
+                    
                 events.append((t_start, f"  🕐 {t_range} — {summary}"))
             else:
+                # אירוע של כל היום (Date object) - כמו חגים ומשחקי כדורגל
                 events.append(("00:00", f"  📌 {summary} (כל היום)"))
                 
     except Exception as ex:

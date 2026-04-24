@@ -1,23 +1,26 @@
-name: דבי — תדריך בוקר יומי
+name: Deby Morning Briefing
 
 on:
   schedule:
-    - cron: '0 0 * * *'
+    - cron: '0 4 * * *'
   workflow_dispatch:
 
 jobs:
   send-briefing:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout repo
         uses: actions/checkout@v4
-      - name: Python 3.11
+
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+
       - name: Install dependencies
         run: pip install -r requirements.txt
-      - name: Run Deby
+
+      - name: Run Bot
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}

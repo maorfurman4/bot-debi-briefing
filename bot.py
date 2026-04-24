@@ -101,7 +101,7 @@ def _get_google_tasks_service():
             scopes=["https://www.googleapis.com/auth/tasks.readonly"]
         )
         creds.refresh(Request())
-        return ("tasks", "v1", credentials=creds)
+        return build("tasks", "v1", credentials=creds)
     except Exception as e:
         logger.error(f"Failed to load Google Tasks: {e}")
         return None

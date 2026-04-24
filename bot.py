@@ -291,16 +291,22 @@ def get_news() -> str:
 
 # ── מניות ──────────────────────────────────────────────────────────────────────
 
+# ── מניות ──────────────────────────────────────────────────────────────────────
+
 def get_stocks() -> str:
     alerts, no_data = [], []
     for ticker in STOCKS:
         try:
-            # הוספנו prepost=True כדי לכלול מסחר מחוץ לשעות הרגילות (אפטר מרקט וטרום מסחר)
-            hist = yf.Ticker(ticker).history(period="5d", prepost=True)
+            # משיכת נתוני הטרום/אפטר מרקט ליומיים האחרונים בלבד
+            hist = yf.Ticker(ticker).history(period="2d", prepost=True)
+            
             if len(hist) < 2:
                 no_data.append(ticker)
                 continue
-            prev, curr = hist["Close"].iloc[-2], hist["Close"].iloc[-1]
+            
+            # לקיחת הסגירה של אתמול והמחיר העדכני ביותר עכשיו (גם אם זה אפטר מרקט)
+            prev = hist["Close"].iloc[0] 
+            curr = hist["Close"].iloc[-1]
             pct = ((curr - prev) / prev) * 100
             
             # בדיקה האם התנועה גדולה מ-5 אחוזים
@@ -316,7 +322,6 @@ def get_stocks() -> str:
     else:
         lines.append("השוק שקט למדי, אין דרמות משמעותיות (>5%). 😴")
     return "\n".join(lines)
-
 # ── Google Calendar ────────────────────────────────────────────────────────────
 
 # ── Google Calendar ────────────────────────────────────────────────────────────

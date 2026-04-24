@@ -441,7 +441,7 @@ def build_message() -> str:
         get_news(),    SEP,
         get_stocks(),  SEP,
         get_calendar(),
-        f"{SEP}\n<i>שיהיה יום פרודוקטיבי! — דבי 🤖✨</i>",
+        f"{SEP}\n<i>שיהיה יום טוב יגבר — דבי ✨</i>",
     ])
 
 

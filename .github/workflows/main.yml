@@ -1,8 +1,8 @@
-name: Deby Morning Briefing
+name: תדריך בוקר דבי
 
 on:
   schedule:
-    - cron: '0 4 * * *'
+    - cron: '0 0 * * *'
   workflow_dispatch:
 
 jobs:

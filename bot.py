@@ -173,7 +173,6 @@ def _visibility_text(vis_m: int) -> str:
 
 def get_dynamic_exercise_time(lat: float, lon: float) -> str:
     try:
-        # שליפת נתונים שעתים ל-24 השעות הקרובות
         om = requests.get(
             f"https://api.open-meteo.com/v1/forecast"
             f"?latitude={lat}&longitude={lon}"
@@ -188,20 +187,24 @@ def get_dynamic_exercise_time(lat: float, lon: float) -> str:
         uvs = hourly.get("uv_index", [])
         precip = hourly.get("precipitation_probability", [])
         
-        # בניית מחרוזת נתונים תמציתית עבור ה-AI
         weather_data_summary = ""
-        for i in range(5, 23): # נתמקד בשעות הערנות 05:00 עד 22:00
+        for i in range(5, 23):
             weather_data_summary += f"{times[i][11:13]}:00 - {temps[i]}°C, UV:{uvs[i]}, גשם:{precip[i]}% | "
 
-        # פנייה ל-OpenAI לניתוח חכם
         prompt = f"""
         אתה מאמן כושר אישי מקצועי. קיבלת תחזית מזג אוויר שעתית להיום בישראל:
         {weather_data_summary}
         
-        נתח את הנתונים והמלץ על חלון הזמן האידיאלי לאימון חוץ (ריצה/הליכה/מתקנים). 
-        תתייחס לטמפרטורה, עומס חום (UV) וסיכוי לגשם. 
-        כתוב המלצה קצרה (2-3 משפטים), מניעה לפעולה, ושתהיה שונה בכל פעם (לא תבנית קבועה).
-        השתמש באימוג'ים מתאימים. התחל ב: "🏃 המלצת המאמן להיום:"
+        נתח את הנתונים והמלץ על חלון הזמן האידיאלי לאימון חוץ.
+        **החובה עליך היא להחזיר את התשובה בדיוק בפורמט הבא, עם ירידות שורה ורווחים בין השורות (אל תסטה מהעיצוב הזה):**
+
+        🏃 <b>המלצת המאמן להיום:</b>
+        
+        🎯 <b>השעה המנצחת:</b> [כאן תכתוב את חלון הזמן המדויק מתי הכי כדאי, מודגש. לדוגמה: 17:00 עד 19:00]
+        
+        🌡️ <b>למה דווקא אז?</b> [כאן תסביר ב-2 משפטים קצרים וקולעים על הטמפרטורה, ה-UV או הרוח שבאותו זמן]
+        
+        💡 <b>טיפ של אלופים:</b> [כאן תן טיפ קטן שקשור, למשל: "אל תשכח קרם הגנה" או "שמור על קצב קל כי הלחות גבוהה"]
         """
 
         url = "https://api.openai.com/v1/chat/completions"
@@ -212,7 +215,7 @@ def get_dynamic_exercise_time(lat: float, lon: float) -> str:
         payload = {
             "model": "gpt-4o-mini",
             "messages": [{"role": "user", "content": prompt}],
-            "temperature": 0.8 # טמפרטורה גבוהה לגיוון בניסוח
+            "temperature": 0.6 
         }
         
         response = requests.post(url, json=payload, headers=headers, timeout=10)
@@ -226,17 +229,21 @@ def get_dynamic_exercise_time(lat: float, lon: float) -> str:
 def get_clothing_recommendation(t_min: float, t_max: float, current_temp: float, desc: str) -> str:
     try:
         prompt = f"""
-        אתה סטייליסט אישי (ומעט הומוריסטי) למנהל שיוצא ליום עבודה. 
+        אתה סטייליסט אישי למנהל שיוצא ליום עבודה. 
         קיבלת את נתוני מזג האוויר להיום:
         - טמפרטורה עכשיו בבוקר יציאה: {current_temp:.1f}°C
         - טווח יומי: בין {t_min:.1f}°C ל-{t_max:.1f}°C
         - תנאי שמיים: {desc}
         
-        תן המלצת לבוש פרקטית להיום (2-3 משפטים). 
-        * אם יש פער גדול בין הבוקר לצהריים, תדגיש את "שיטת השכבות". 
-        * התייחס למצב השמיים (אם חם מאוד - בגדים נושמים/קצרים, אם גשום - מטרייה/מעיל).
-        * השתמש באימוג'ים מתאימים לבגדים. גוון בניסוחים שלך כדי שזה לא יהיה משעמם!
-        התחל במילים: "👔 המלצת הסטייליסט להיום:"
+        **החובה עליך היא להחזיר את התשובה בדיוק בפורמט הבא, עם ירידות שורה ורווחים (אל תסטה מהעיצוב הזה):**
+
+        👔 <b>המלצת הסטייליסט להיום:</b>
+        
+        👕 <b>הלוק המומלץ:</b> [מה בדיוק ללבוש, כולל אימוג'ים מתאימים כמו ג'קט/חולצה קצרה. למשל: חולצה קצרה מתחת לג'קט קל]
+        
+        ⚖️ <b>למה?</b> [הסבר קצר, פאנצ'י וזורם על ההבדל בין הבוקר לצהריים או בגלל העננים]
+        
+        😎 <b>אקססורי חובה:</b> [המלצה קצרה על פריט משלים - משקפי שמש, מטרייה קטנה בתיק, או סניקרס נוחות]
         """
 
         url = "https://api.openai.com/v1/chat/completions"
@@ -245,9 +252,9 @@ def get_clothing_recommendation(t_min: float, t_max: float, current_temp: float,
             "Content-Type": "application/json"
         }
         payload = {
-            "model": "gpt-4o-mini", # שימוש במודל המהיר והזול מספיק למשימות כאלו
+            "model": "gpt-4o-mini",
             "messages": [{"role": "user", "content": prompt}],
-            "temperature": 0.8 # דואג שהניסוח יהיה שונה בכל בוקר
+            "temperature": 0.6
         }
         
         response = requests.post(url, json=payload, headers=headers, timeout=10)
@@ -256,7 +263,7 @@ def get_clothing_recommendation(t_min: float, t_max: float, current_temp: float,
 
     except Exception as e:
         logger.error(f"AI Clothing analysis error: {e}")
-        return "👔 <b>המלצת הסטייליסט:</b> נראה שיש לי תקלה במלתחה הבוקר, פשוט תלבש משהו נוח! 😅"
+        return "👔 <b>המלצת הסטייליסט:</b> פשוט תלבש משהו נוח וצא לטרוף את העולם! 😎"ח"
 def get_weather() -> str:
     if not OPENWEATHER_KEY:
         return "🌡️ <b>מזג אוויר</b> — מפתח API חסר"

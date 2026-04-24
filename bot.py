@@ -416,7 +416,7 @@ def _get_google_tasks_service():
     try:
         from google.oauth2.credentials import Credentials as OAuthCredentials
         from google.auth.transport.requests import Request
-        from googleapiclient.discovery import 
+        from googleapiclient.discovery import build 
         
         info = json.loads(creds_json)
         creds = OAuthCredentials(

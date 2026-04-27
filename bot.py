@@ -83,7 +83,7 @@ def _get_google_tasks_service():
 def get_real_google_tasks() -> str:
     service = _get_google_tasks_service()
     if not service:
-        return ""
+        return "📋 <b>משימות:</b> תקלת התחברות ל-API. חסר שירות."
     try:
         results = service.tasks().list(tasklist='@default', showCompleted=False).execute()
         items = results.get('items', [])
@@ -91,22 +91,18 @@ def get_real_google_tasks() -> str:
         if not items:
             return "📋 <b>משימות:</b> הכל נקי! אין לך משימות פתוחות. 🎉"
 
-        today_str = datetime.now(IL_TZ).strftime("%Y-%m-%d")
+        # למטרת בדיקה - מדפיסים את *כל* המשימות בלי לסנן תאריך
         task_lines = []
-        
         for task in items:
             title = esc(task.get('title', '(ללא כותרת)'))
-            due = task.get('due')
-            if not due or today_str in due:
-                task_lines.append(f"✅ {title}")
+            due = task.get('due', 'ללא תאריך')
+            # הוספתי הדפסה של ה-due כדי שנראה איך גוגל שולח אותו
+            task_lines.append(f"✅ {title} (תאריך יעד מ-API: {due})")
 
-        if not task_lines:
-            return ""
-            
-        return "📋 <b>משימות להיום:</b>\n" + "\n".join(task_lines)
+        return "📋 <b>כל המשימות הפתוחות שלך (בדיקה):</b>\n" + "\n".join(task_lines)
     except Exception as e:
         logger.error(f"Tasks Fetch Error: {e}")
-        return "📋 <b>משימות:</b> תקלה בשליפת נתונים."
+        return f"📋 <b>משימות:</b> שגיאה בשליפה. קוד שגיאה: {e}"
 
 # ── מזג אוויר ואימון דינמי ────────────────────────────────────────────────────
 
@@ -329,16 +325,15 @@ def build_message() -> str:
         get_stocks(),  SEP,
     ]
     
+    # תמיד מדפיסים את המשימות עכשיו, אפילו אם הן "ריקות", כדי לזהות את הבעיה
     tasks = get_real_google_tasks()
-    if tasks and "אין משימות פתוחות" not in tasks:
-        sections.append(tasks)
-        sections.append(SEP)
+    sections.append(tasks)
+    sections.append(SEP)
     
     sections.append(calendar_data)
     sections.append(f"{SEP}\n<i>שיהיה יום מעולה גבר! — דבי ✨</i>")
     
     return "\n\n".join([s for s in sections if s.strip()])
-
 # ── שליחה ──────────────────────────────────────────────────────────────────────
 
 async def main():

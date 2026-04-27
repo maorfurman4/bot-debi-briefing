@@ -171,154 +171,92 @@ def _visibility_text(vis_m: int) -> str:
     if km >= 2:   return f"בינונית ({km:.1f} ק\"מ)"
     return f"ירודה ({km:.1f} ק\"מ) ⚠️"
 
-def get_dynamic_exercise_time(lat: float, lon: float) -> str:
+def get_dynamic_exercise_time(lat: float, lon: float, calendar_text: str) -> str:
     try:
         om = requests.get(
-            f"https://api.open-meteo.com/v1/forecast"
-            f"?latitude={lat}&longitude={lon}"
-            f"&hourly=temperature_2m,uv_index,precipitation_probability,wind_speed_10m"
-            f"&timezone=Asia/Jerusalem&forecast_days=1",
+            f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}"
+            f"&hourly=temperature_2m,uv_index&timezone=Asia/Jerusalem&forecast_days=1",
             timeout=8,
         ).json()
         
-        hourly = om.get("hourly", {})
-        times = hourly.get("time", [])
-        temps = hourly.get("temperature_2m", [])
-        uvs = hourly.get("uv_index", [])
-        precip = hourly.get("precipitation_probability", [])
-        
-        weather_data_summary = ""
-        for i in range(5, 23):
-            weather_data_summary += f"{times[i][11:13]}:00 - {temps[i]}°C, UV:{uvs[i]}, גשם:{precip[i]}% | "
+        h = om.get("hourly", {})
+        weather_summary = " ".join([f"{h['time'][i][11:13]}:00-{h['temperature_2m'][i]}°C" for i in range(5, 20)])
 
         prompt = f"""
-        אתה מאמן כושר אישי מקצועי. קיבלת תחזית מזג אוויר שעתית להיום בישראל:
-        {weather_data_summary}
+        אתה מאמן כושר. מזג אוויר שעתי: {weather_summary}
+        לו"ז המתאמן להיום:
+        {calendar_text}
         
-        נתח את הנתונים והמלץ על חלון הזמן האידיאלי לאימון חוץ.
-        **החובה עליך היא להחזיר את התשובה בדיוק בפורמט הבא, עם ירידות שורה ורווחים בין השורות (אל תסטה מהעיצוב הזה):**
-
-        🏃 <b>המלצת המאמן להיום:</b>
-        
-        🎯 <b>השעה המנצחת:</b> [כאן תכתוב את חלון הזמן המדויק מתי הכי כדאי, מודגש. לדוגמה: 17:00 עד 19:00]
-        
-        🌡️ <b>למה דווקא אז?</b> [כאן תסביר ב-2 משפטים קצרים וקולעים על הטמפרטורה, ה-UV או הרוח שבאותו זמן]
-        
-        💡 <b>טיפ של אלופים:</b> [כאן תן טיפ קטן שקשור, למשל: "אל תשכח קרם הגנה" או "שמור על קצב קל כי הלחות גבוהה"]
+        מצא חלון פנוי של שעה וחצי לפחות לאימון, החל מ-06:00 בבוקר. אם יש זמן פנוי בבוקר המוקדם, תן לו עדיפות.
+        החזר בדיוק בפורמט הבא, ללא הסברים נוספים:
+        🎯 <b>השעה המנצחת לאימון:</b> [השעות, למשל 06:30 עד 08:00]
+        💡 <b>טיפ של אלופים:</b> אל תשכח לקחת תוספי תזונה ולשתות מים!
         """
-
         url = "https://api.openai.com/v1/chat/completions"
-        headers = {
-            "Authorization": f"Bearer {OPENAI_API_KEY}",
-            "Content-Type": "application/json"
-        }
-        payload = {
-            "model": "gpt-4o-mini",
-            "messages": [{"role": "user", "content": prompt}],
-            "temperature": 0.6 
-        }
+        headers = {"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"}
+        payload = {"model": "gpt-4o-mini", "messages": [{"role": "user", "content": prompt}], "temperature": 0.6}
         
-        response = requests.post(url, json=payload, headers=headers, timeout=10)
-        result = response.json()
-        return result['choices'][0]['message']['content'].strip()
-
+        response = requests.post(url, json=payload, headers=headers, timeout=10).json()
+        return response['choices'][0]['message']['content'].strip()
     except Exception as e:
-        logger.error(f"AI Exercise analysis error: {e}")
-        return "🏃 <b>זמן אימון:</b> היום כדאי להקשיב לגוף ולמזג האוויר בחוץ."
-
-def get_clothing_recommendation(t_min: float, t_max: float, current_temp: float, desc: str) -> str:
+        logger.error(f"AI Exercise error: {e}")
+        return "🎯 <b>השעה המנצחת לאימון:</b> חפש חלון פנוי ביומן\n💡 <b>טיפ של אלופים:</b> לא לשכוח תוספים ומים!"
+        
+def get_clothing_recommendation(current_temp: float, desc: str, is_lab_day: bool) -> str:
     try:
         prompt = f"""
-        אתה סטייליסט אישי למנהל שיוצא ליום עבודה. 
-        קיבלת את נתוני מזג האוויר להיום:
-        - טמפרטורה עכשיו בבוקר יציאה: {current_temp:.1f}°C
-        - טווח יומי: בין {t_min:.1f}°C ל-{t_max:.1f}°C
-        - תנאי שמיים: {desc}
+        אתה סטייליסט אישי למנהל. מזג האוויר בבוקר: {current_temp:.1f}°C, שמיים: {desc}.
+        האם היום יש מעבדה (חובה מכנסיים ארוכים ונעליים סגורות)? {'כן' if is_lab_day else 'לא'}
         
-        **החובה עליך היא להחזיר את התשובה בדיוק בפורמט הבא, עם ירידות שורה ורווחים (אל תסטה מהעיצוב הזה):**
-
-        👔 <b>המלצת הסטייליסט להיום:</b>
-        
-        👕 <b>הלוק המומלץ:</b> [מה בדיוק ללבוש, כולל אימוג'ים מתאימים כמו ג'קט/חולצה קצרה. למשל: חולצה קצרה מתחת לג'קט קל]
-        
-        ⚖️ <b>למה?</b> [הסבר קצר, פאנצ'י וזורם על ההבדל בין הבוקר לצהריים או בגלל העננים]
-        
-        😎 <b>אקססורי חובה:</b> [המלצה קצרה על פריט משלים - משקפי שמש, מטרייה קטנה בתיק, או סניקרס נוחות]
+        החזר בדיוק בפורמט הבא, ללא הסברים נוספים:
+        👕 <b>הלוק המומלץ:</b> [פירוט הלוק]
+        👟 <b>נעליים:</b> [סוג נעליים. אם יום מעבדה, חובה להמליץ על נעלי ספורט/סגורות]
         """
-
         url = "https://api.openai.com/v1/chat/completions"
-        headers = {
-            "Authorization": f"Bearer {OPENAI_API_KEY}",
-            "Content-Type": "application/json"
-        }
-        payload = {
-            "model": "gpt-4o-mini",
-            "messages": [{"role": "user", "content": prompt}],
-            "temperature": 0.6
-        }
+        headers = {"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"}
+        payload = {"model": "gpt-4o-mini", "messages": [{"role": "user", "content": prompt}], "temperature": 0.6}
         
-        response = requests.post(url, json=payload, headers=headers, timeout=10)
-        result = response.json()
-        return result['choices'][0]['message']['content'].strip()
-
+        response = requests.post(url, json=payload, headers=headers, timeout=10).json()
+        return response['choices'][0]['message']['content'].strip()
     except Exception as e:
-        logger.error(f"AI Clothing analysis error: {e}")
-        return "👔 <b>המלצת הסטייליסט:</b> פשוט תלבש משהו נוח וצא לטרוף את העולם! 😎"
-def get_weather() -> str:
+        logger.error(f"AI Clothing error: {e}")
+        return "👔 <b>הלוק המומלץ:</b> בגדים נוחים\n👟 <b>נעליים:</b> סניקרס"
+        
+def get_weather(calendar_text: str) -> str:
     if not OPENWEATHER_KEY:
-        return "🌡️ <b>מזג אוויר</b> — מפתח API חסר"
+        return "🌡️ מפתח חסר"
     try:
-        ow = requests.get(
-            "https://api.openweathermap.org/data/2.5/weather"
-            f"?q=Tel+Aviv,IL&appid={OPENWEATHER_KEY}&units=metric&lang=he",
-            timeout=10,
-        ).json()
+        ow = requests.get(f"https://api.openweathermap.org/data/2.5/weather?q=Tel+Aviv,IL&appid={OPENWEATHER_KEY}&units=metric&lang=he").json()
+        lat, lon = ow["coord"]["lat"], ow["coord"]["lon"]
         
-        lat = ow["coord"]["lat"]
-        lon = ow["coord"]["lon"]
+        # שליפת נתונים לשעות הספציפיות
+        om = requests.get(f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&hourly=temperature_2m,uv_index&timezone=Asia/Jerusalem").json()
+        h = om["hourly"]
         
-        t_max, t_min, uvi_max = 0.0, 0.0, 0.0
-        try:
-            om_daily = requests.get(
-                f"https://api.open-meteo.com/v1/forecast"
-                f"?latitude={lat}&longitude={lon}"
-                f"&daily=temperature_2m_max,temperature_2m_min,uv_index_max&timezone=Asia/Jerusalem",
-                timeout=8,
-            ).json()
-            t_max = om_daily["daily"]["temperature_2m_max"][0]
-            t_min = om_daily["daily"]["temperature_2m_min"][0]
-            uvi_max = om_daily["daily"]["uv_index_max"][0]
-        except Exception:
-            t_max, t_min = ow["main"]["temp_max"], ow["main"]["temp_min"]
+        t_8, t_13, t_18 = h["temperature_2m"][8], h["temperature_2m"][13], h["temperature_2m"][18]
+        uv_8, uv_13, uv_18 = h["uv_index"][8], h["uv_index"][13], h["uv_index"][18]
+        
+        desc = esc(ow["weather"][0]["description"])
+        humidity = ow["main"]["humidity"]
+        wind_ms = ow["wind"]["speed"]
+        visibility = ow.get("visibility", 10000)
+        
+        sunrise_str = datetime.fromtimestamp(ow["sys"]["sunrise"], tz=IL_TZ).strftime("%H:%M")
+        sunset_str = datetime.fromtimestamp(ow["sys"]["sunset"], tz=IL_TZ).strftime("%H:%M")
 
-        temp        = ow["main"]["temp"]
-        feels       = ow["main"]["feels_like"]
-        desc        = esc(ow["weather"][0]["description"])
-        humidity    = ow["main"]["humidity"]
-        wind_ms     = ow["wind"]["speed"]
-        visibility  = ow.get("visibility", 10000)
-        sunrise_ts  = ow["sys"]["sunrise"]
-        sunset_ts   = ow["sys"]["sunset"]
-        avg_temp    = (t_max + t_min) / 2
-
-        sunrise_str = datetime.fromtimestamp(sunrise_ts, tz=IL_TZ).strftime("%H:%M")
-        sunset_str  = datetime.fromtimestamp(sunset_ts,  tz=IL_TZ).strftime("%H:%M")
-
-        clothes = get_clothing_recommendation(t_min, t_max, temp, desc)
-        exercise_text = get_dynamic_exercise_time(lat, lon)
+        is_lab_day = "מעבדה" in calendar_text
+        clothes = get_clothing_recommendation(ow["main"]["temp"], desc, is_lab_day)
+        exercise_text = get_dynamic_exercise_time(lat, lon, calendar_text)
 
         return (
             f"🌡️ <b>מזג אוויר — תל אביב</b>\n"
-            f"טמפ' עכשיו: <b>{temp:.0f}°C</b> | ממוצעת יומית: <b>{avg_temp:.1f}°C</b>\n"
-            f"טווח יומי אמיתי: מקס' {t_max:.0f}° / מינ' {t_min:.0f}°\n"
-            f"תחושה: {feels:.0f}°C | {desc}\n"
-            f"לחות: {humidity}%\n"
-            f"רוח: {_wind_text(wind_ms)}\n"
-            f"נראות: {_visibility_text(visibility)}\n"
-            f"אינדקס UV (שיא להיום): {_uv_text(uvi_max)}\n"
-            f"זריחה: {sunrise_str} 🌅 | שקיעה: {sunset_str} 🌇\n\n"
+            f"08:00 — {t_8:.1f}°C | UV: {uv_8:.1f}\n"
+            f"13:00 — {t_13:.1f}°C | UV: {uv_13:.1f}\n"
+            f"18:00 — {t_18:.1f}°C | UV: {uv_18:.1f}\n"
+            f"💧 לחות: {humidity}% | 💨 רוח: {_wind_text(wind_ms)} | 👁️ ראות: {_visibility_text(visibility)}\n"
+            f"🌅 זריחה: {sunrise_str} | 🌇 שקיעה: {sunset_str}\n\n"
             f"👔 <b>לבוש להיום:</b>\n{clothes}\n\n"
-            f"{exercise_text}"
+            f"🏃 <b>המלצת המאמן:</b>\n{exercise_text}"
         )
     except Exception as ex:
         logger.error("Weather error: %s", ex)
@@ -515,27 +453,24 @@ def build_message() -> str:
     days_he  = ["שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת", "ראשון"]
     date_str = now.strftime(f"יום {days_he[now.weekday()]}, %d/%m/%Y")
 
-    # פתיח, מזג אוויר ומניות
+    # קוראים ליומן קודם כדי להעביר אותו למזג האוויר והלבוש
+    calendar_data = get_calendar()
+
     sections = [
         f"🌅 <b>{get_witty_greeting()}</b> 😄\n<i>{date_str}</i>\n{get_transition()}\n{SEP}",
-        get_weather(), SEP,
+        get_weather(calendar_data), SEP,
         get_stocks(),  SEP,
     ]
     
-    # משימות - קוראים לפונקציה רק פעם אחת ומכניסים אם יש תוכן
     tasks = get_real_google_tasks()
     if tasks and "אין משימות פתוחות" not in tasks:
         sections.append(tasks)
         sections.append(SEP)
     
-    # יומן
-    sections.append(get_calendar())
-        
+    sections.append(calendar_data)
     sections.append(f"{SEP}\n<i>שיהיה יום מוצלח אלוף! — דבי ✨</i>")
     
-    # סינון סעיפים ריקים וחיבור ברווח כפול
     return "\n\n".join([s for s in sections if s.strip()])
-
 # ── שליחה ──────────────────────────────────────────────────────────────────────
 
 async def main():

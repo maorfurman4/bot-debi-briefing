@@ -324,7 +324,7 @@ def build_message() -> str:
     calendar_data = get_calendar()
 
     sections = [
-        f"🌅 <b>{get_witty_greeting()}</b> 😄\n<i>{date_str}</i>\n{get_transition()}\n{SEP}",
+        f"🌅 <b>{get_witty_greeting()}</b> 😄\n<i>{date_str}</i>\n{SEP}",
         get_weather(calendar_data), SEP,
         get_stocks(),  SEP,
     ]
@@ -335,7 +335,7 @@ def build_message() -> str:
         sections.append(SEP)
     
     sections.append(calendar_data)
-    sections.append(f"{SEP}\n<i>שיהיה יום מוצלח אלוף! — דבי ✨</i>")
+    sections.append(f"{SEP}\n<i>שיהיה יום מעולה גבר! — דבי ✨</i>")
     
     return "\n\n".join([s for s in sections if s.strip()])
 

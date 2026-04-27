@@ -82,28 +82,15 @@ def _get_google_tasks_service():
 
 def get_real_google_tasks() -> str:
     service = _get_google_tasks_service()
-    if not service:
-        return "📋 <b>משימות:</b> תקלת התחברות ל-API. חסר שירות."
+    if not service: return ""
     try:
         results = service.tasks().list(tasklist='@default', showCompleted=False).execute()
         items = results.get('items', [])
-        
-        if not items:
-            return "📋 <b>משימות:</b> הכל נקי! אין לך משימות פתוחות. 🎉"
-
-        # למטרת בדיקה - מדפיסים את *כל* המשימות בלי לסנן תאריך
-        task_lines = []
-        for task in items:
-            title = esc(task.get('title', '(ללא כותרת)'))
-            due = task.get('due', 'ללא תאריך')
-            # הוספתי הדפסה של ה-due כדי שנראה איך גוגל שולח אותו
-            task_lines.append(f"✅ {title} (תאריך יעד מ-API: {due})")
-
-        return "📋 <b>כל המשימות הפתוחות שלך (בדיקה):</b>\n" + "\n".join(task_lines)
-    except Exception as e:
-        logger.error(f"Tasks Fetch Error: {e}")
-        return f"📋 <b>משימות:</b> שגיאה בשליפה. קוד שגיאה: {e}"
-
+        today_str = datetime.now(IL_TZ).strftime("%Y-%m-%d")
+        # מסנן רק משימות להיום או ללא תאריך
+        task_lines = [f"✅ {esc(t.get('title', '(ללא כותרת)'))}" for t in items if not t.get('due') or today_str in t.get('due')]
+        return "📋 <b>משימות להיום:</b>\n" + "\n".join(task_lines) if task_lines else ""
+    except Exception: return ""
 # ── מזג אוויר ואימון דינמי ────────────────────────────────────────────────────
 
 def _wind_text(speed_ms: float) -> str:
@@ -313,26 +300,16 @@ def get_witty_greeting() -> str:
 # ── בניית ההודעה ──────────────────────────────────────────────────────────────
 
 def build_message() -> str:
-    now      = datetime.now(IL_TZ)
-    days_he  = ["שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת", "ראשון"]
+    now, days_he = datetime.now(IL_TZ), ["שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת", "ראשון"]
     date_str = now.strftime(f"יום {days_he[now.weekday()]}, %d/%m/%Y")
-
     calendar_data = get_calendar()
-
-    sections = [
-        f"🌅 <b>{get_witty_greeting()}</b> 😄\n<i>{date_str}</i>\n{SEP}",
-        get_weather(calendar_data), SEP,
-        get_stocks(),  SEP,
-    ]
+    sections = [f"🌅 <b>{get_witty_greeting()}</b> 😄\n<i>{date_str}</i>\n{SEP}", get_weather(calendar_data), SEP, get_stocks(), SEP]
     
-    # תמיד מדפיסים את המשימות עכשיו, אפילו אם הן "ריקות", כדי לזהות את הבעיה
     tasks = get_real_google_tasks()
-    sections.append(tasks)
-    sections.append(SEP)
+    if tasks:
+        sections.extend([tasks, SEP])
     
-    sections.append(calendar_data)
-    sections.append(f"{SEP}\n<i>שיהיה יום מעולה גבר! — דבי ✨</i>")
-    
+    sections.extend([calendar_data, f"{SEP}\n<i>שיהיה יום מעולה גבר! — דבי ✨</i>"])
     return "\n\n".join([s for s in sections if s.strip()])
 # ── שליחה ──────────────────────────────────────────────────────────────────────
 

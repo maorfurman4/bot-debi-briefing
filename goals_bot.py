@@ -149,36 +149,31 @@ async def main():
     if not token or not chat_id: return
     bot = Bot(token=token)
     
-    # 1. המערכת קוראת את היומן בשקט
     existing_events = get_todays_events()
-    
-    # 2. ה-AI מנתח ומקבל החלטות בלי לדווח עליהן בטקסט
     plan = generate_smart_schedule(existing_events)
 
-    # 3. בניית ההודעה הסופית בלבד
-    message_parts = [plan.get('opening_shoutout', "מה קורה אחי, הנה המשימות שלך לקידום המטרות להיום:")]
+    message_parts = [plan.get('opening_shoutout', "מה קורה אחי, הנה הלוז:")]
     
     if plan.get('calendar_updates'):
-        message_parts.append("\n📅 **התוכנית להיום:**")
+        message_parts.append("\n📅 **מה הולך לקרות היום:**")
         for event in plan['calendar_updates']:
-            # עדכון יומן גוגל בפועל
             success = add_to_calendar(event['title'], event['start'], event['end'])
-            
             start_time = event['start'].split('T')[1][:5]
             status_icon = "✅" if success else "❌"
-            
             message_parts.append(
                 f"{status_icon} **{start_time} - {event['title']}**\n"
                 f"📝 {event.get('description', '')}\n"
                 f"⏰ {event.get('free_time_context', '')}\n"
             )
     else:
-        message_parts.append("\nבדקתי את היומן, הוא עמוס מדי היום או שאין צורך בשיבוץ חדש. תתמקד במה שקיים!")
+        message_parts.append("\nהיומן מלא או שצריך מנוחה. תתמקד במה שיש!")
 
     message_parts.append("\nמקווה שתתמיד ותעשה הכל, אני כאן.")
     
     try:
         await bot.send_message(chat_id=chat_id, text="\n".join(message_parts), parse_mode="Markdown")
-        print("Done! Sent clean update to Yehuda.")
     except Exception as e:
         print(f"Telegram Send Error: {e}")
+
+if __name__ == "__main__":
+    asyncio.run(main())

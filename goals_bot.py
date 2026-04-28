@@ -76,36 +76,37 @@ def generate_smart_schedule(existing_events):
     today_str = datetime.datetime.now().strftime("%Y-%m-%d")
     
     prompt = f"""
-    המטרות השבועיות של יהודה:
-    1. גיטרה: שעה בשבוע.
-    2. אנגלית: 10 דקות ביום.
-    3. דיקציה: שעה בשבוע.
-    4. בישול: חצי שעה ביום (במקום חטיף).
-    5. דיבור לקהל: שעה בשבוע.
-    6. פיתוח אפליקציה: גג שעתיים בשבוע.
-    7. כושר: 3 אימונים בשבוע (יעד 78 ק"ג).
+    אתה ה-Architect, מאמן ביצועים אישי וחבר קרוב של יהודה.
+    הטון שלך: "מה קורה אחי", ישיר, מדרבן, בלי מילים מיותרות ובלי "בוטיות".
     
-    חוקים:
-    - משימות בישול ואנגלית נכנסות ל-Google Tasks.
-    - אם ביומן הקיים יש 'תרגול'/'שיעור', הוסף שעה של 'שיעורי בית' ל-Tasks או ל-Calendar ביום פנוי.
-    - אל תיצור עומס. הוסף מקסימום 1-2 מטרות ליומן היום לפי העומס.
+    המטרות של יהודה:
+    1. גיטרה (שעה בשבוע), אנגלית (10 דק' ביום), דיקציה (שעה בשבוע), בישול (30 דק' ביום - לעודד במקום חטיף), דיבור לקהל (שעה בשבוע), פיתוח אפליקציה (גג שעתיים בשבוע), כושר (3 פעמים בשבוע).
     
-    תאריך היום: {today_str}
-    אירועים קיימים היום ביומן: {existing_events}
+    משימה קריטית:
+    - אל תשים את האנגלית והבישול ב-Tasks! מצא להם חלון זמן פנוי היום ושבץ אותם ב-Calendar (calendar_updates).
+    - לכל משימה שאתה מוסיף, תן תיאור קצר של "למה זה חשוב" או "איך לבצע".
+    - תנתח את הלו"ז הקיים: {existing_events}.
     
-    החזר תשובה אך ורק כ-JSON תקין:
+    החזר JSON במבנה הזה בלבד:
     {{
-      "calendar_updates": [{{"title": "...", "start": "{today_str}T18:00:00", "end": "{today_str}T19:00:00"}}],
-      "tasks_to_add": ["..."],
-      "telegram_message": "הודעת מוטיבציה וסיכום היום בעברית. פנה אלי כ'יהודה'."
+      "calendar_updates": [
+        {{
+          "title": "אנגלית - 10 מילים",
+          "description": "להרחיב אוצר מילים כדי לשלוט בשפה",
+          "start": "{today_str}T10:00:00",
+          "end": "{today_str}T10:10:00",
+          "free_time_context": "יש לך חלון בין הפגישות בבוקר"
+        }}
+      ],
+      "tasks_to_add": [],
+      "opening_shoutout": "מה קורה אחי, הנה המשימות שלך להיום לקידום המטרות שלך."
     }}
-    אם היום עמוס מאוד, השאר את "calendar_updates" ריק [].
     """
     try:
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=[
-                {"role": "system", "content": "You are a JSON-only output AI. You are an elite productivity architect for Yehuda."},
+                {"role": "system", "content": "You are a sharp, casual, and motivating performance coach for your brother Yehuda. JSON output only."},
                 {"role": "user", "content": prompt}
             ],
             response_format={ "type": "json_object" }
@@ -113,8 +114,7 @@ def generate_smart_schedule(existing_events):
         return json.loads(response.choices[0].message.content)
     except Exception as e:
         print(f"AI Error: {e}")
-        return {"calendar_updates": [], "tasks_to_add": [], "telegram_message": "שגיאה בניתוח ה-AI. קח משימה קטנה אחת היום וקדם אותה!"}
-
+        return {"calendar_updates": [], "tasks_to_add": [], "opening_shoutout": "מה קורה אחי, המערכת קצת מגמגמת אבל אל תעצור. תן עבודה היום!"}
 # ==========================================
 # חלק 3: טלגרם ותזמור המערכת
 # ==========================================
@@ -131,27 +131,36 @@ async def main():
     existing_events = get_todays_events()
     plan = generate_smart_schedule(existing_events)
 
-    # עדכון שירותי גוגל
-    calendar_msg = "לא הוספו אירועים חדשים ליומן."
+    # בניית ההודעה לטלגרם
+    message_parts = [plan.get('opening_shoutout', "מה קורה אחי, הנה המשימות שלך להיום לקידום המטרות שלך.")]
+    
     if plan.get('calendar_updates'):
+        message_parts.append("\n📅 **מה בתפריט (נכנס ליומן):**")
         for event in plan['calendar_updates']:
+            # הוספה ליומן גוגל
             add_to_calendar(event['title'], event['start'], event['end'])
-        calendar_msg = f"📅 **נוסף ליומן:** {', '.join([e['title'] for e in plan['calendar_updates']])}"
+            
+            # חילוץ השעה מתוך פורמט ה-ISO (למשל מ- 2024-05-15T08:00:00 לוקח רק את 08:00)
+            time_str = event['start'].split('T')[1][:5] 
+            
+            # עיצוב משימה בודדת בטלגרם
+            message_parts.append(
+                f"🔹 *{event['title']}* ({time_str})\n"
+                f"📝 {event.get('description', '')}\n"
+                f"⏰ {event.get('free_time_context', 'זמן פנוי שמצאתי לך')}\n"
+            )
 
-    tasks_msg = "לא הוספו משימות חדשות."
     if plan.get('tasks_to_add'):
+        message_parts.append("\n✅ **קטנות בדרך (Tasks):**")
         for task in plan['tasks_to_add']:
             add_to_tasks(task)
-        tasks_msg = f"✅ **נוסף למשימות:** {', '.join(plan['tasks_to_add'])}"
+            message_parts.append(f"• {task}")
 
-    # שליחה לטלגרם
-    final_message = (
-        f"🔥 **בוקר טוב יהודה!**\n\n"
-        f"🧠 {plan.get('telegram_message', '')}\n\n"
-        f"{calendar_msg}\n"
-        f"{tasks_msg}\n\n"
-        f"תצליח!"
-    )
+    # סגירת ההודעה כמו שביקשת
+    message_parts.append("\nמקווה שתתמיד ותעשה הכל, אני כאן.")
+    
+    # חיבור כל החלקים להודעה אחת שלימה
+    final_message = "\n".join(message_parts)
     
     try:
         await bot.send_message(chat_id=chat_id, text=final_message, parse_mode="Markdown")

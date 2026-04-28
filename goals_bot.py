@@ -66,17 +66,59 @@ def get_todays_events():
 def add_to_calendar(title, start_iso, end_iso):
     try:
         service = get_calendar_service()
-        if not service: return False
+        if not service: 
+            print("❌ No Calendar Service available")
+            return False
+            
+        cal_id = os.getenv("ARCHITECT_CALENDAR_ID", "primary").strip()
+
+        # --- שיפור 1: בדיקת כפילויות לפני הוספה ---
+        existing_check = service.events().list(
+            calendarId=cal_id, 
+            timeMin=start_iso, 
+            timeMax=end_iso,
+            singleEvents=True
+        ).execute()
+        
+        for item in existing_check.get('items', []):
+            if item.get('summary') == title:
+                print(f"⚠️ Event '{title}' already exists at this time. Skipping.")
+                return True # נחשב כהצלחה כדי לא להציף הודעות שגיאה
+
+        # --- שיפור 2: מבנה אירוע מקצועי (כולל צבע ותזכורת) ---
         event = {
             'summary': title,
-            'start': {'dateTime': start_iso, 'timeZone': 'Asia/Jerusalem'},
-            'end': {'dateTime': end_iso, 'timeZone': 'Asia/Jerusalem'},
+            'description': 'Target scheduled by Architect Bot',
+            'start': {
+                'dateTime': start_iso,
+                'timeZone': 'Asia/Jerusalem',
+            },
+            'end': {
+                'dateTime': end_iso,
+                'timeZone': 'Asia/Jerusalem',
+            },
+            'colorId': '1', # צבע צהוב בולט ביומן
+            'reminders': {
+                'useDefault': False,
+                'overrides': [
+                    {'method': 'popup', 'minutes': 10}, # תזכורת לנייד 10 דקות לפני
+                ],
+            },
         }
-        calendar_id = os.getenv("ARCHITECT_CALENDAR_ID").strip()
-        service.events().insert(calendarId=calendar_id, body=event).execute()
+
+        service.events().insert(calendarId=cal_id, body=event).execute()
+        print(f"✅ Successfully added: {title}")
         return True
+
     except Exception as e:
-        print(f"Calendar Insert Error: {e}")
+        # הדפסת שגיאה מפורטת ללוגים של GitHub
+        error_msg = str(e)
+        if "404" in error_msg:
+            print(f"❌ Error 404: Calendar ID not found. Check your Secret.")
+        elif "403" in error_msg:
+            print(f"❌ Error 403: Permission Denied. Did you share the calendar with the bot email?")
+        else:
+            print(f"❌ Calendar Insert Error: {error_msg}")
         return False
 
 def add_to_tasks(title, notes="נוצר על ידי ה-Architect Bot"):

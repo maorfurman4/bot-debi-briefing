@@ -31,7 +31,7 @@ def get_todays_events():
     try:
         service = get_calendar_service()
         if not service: return "אין גישה ליומן."
-        calendar_id = os.getenv("GOOGLE_CALENDAR_ICS", "primary")
+        calendar_id = os.getenv("GOOGLE_CALENDAR_ICS", "primary").strip()
         now = datetime.datetime.utcnow().isoformat() + 'Z'
         end_of_day = (datetime.datetime.utcnow() + datetime.timedelta(hours=24)).isoformat() + 'Z'
         
@@ -51,7 +51,8 @@ def add_to_calendar(title, start_iso, end_iso):
             'start': {'dateTime': start_iso, 'timeZone': 'Asia/Jerusalem'},
             'end': {'dateTime': end_iso, 'timeZone': 'Asia/Jerusalem'},
         }
-        service.events().insert(calendarId=os.getenv("GOOGLE_CALENDAR_ICS", "primary"), body=event).execute()
+        calendar_id = os.getenv("GOOGLE_CALENDAR_ICS", "primary").strip()
+        service.events().insert(calendarId=calendar_id, body=event).execute()
         return True
     except Exception as e:
         print(f"Calendar Insert Error: {e}")

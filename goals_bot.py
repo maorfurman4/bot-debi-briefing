@@ -31,94 +31,45 @@ def get_todays_events():
         service = get_calendar_service()
         if not service: return "אין גישה ליומן."
         calendar_id = os.getenv("ARCHITECT_CALENDAR_ID").strip()
-        
         now = datetime.datetime.utcnow().isoformat() + 'Z'
         end_of_day = (datetime.datetime.utcnow() + datetime.timedelta(hours=24)).isoformat() + 'Z'
         
-        # הדרישה לקבל את השעות אך ורק בשעון ישראל!
-        events_result = service.events().list(
-            calendarId=calendar_id, 
-            timeMin=now, 
-            timeMax=end_of_day, 
-            singleEvents=True, 
-            orderBy='startTime',
-            timeZone='Asia/Jerusalem' 
-        ).execute()
-        
+        events_result = service.events().list(calendarId=calendar_id, timeMin=now, timeMax=end_of_day, singleEvents=True, orderBy='startTime').execute()
         events = events_result.get('items', [])
-        if not events: return "אין אירועים ביומן. הלוז פנוי לחלוטין."
+        
+        if not events: return "אין אירועים ביומן היום. הלוז פנוי לחלוטין."
         
         event_list = []
         for e in events:
             summary = e.get('summary', 'Unknown')
+            # חילוץ שעות התחלה וסיום בצורה ברורה
             start = e['start'].get('dateTime')
             end = e['end'].get('dateTime')
             if start and end:
                 start_time = start.split('T')[1][:5]
                 end_time = end.split('T')[1][:5]
-                event_list.append(f"[{start_time}-{end_time}: {summary}]")
+                event_list.append(f"{start_time}-{end_time}: {summary}")
             else:
-                event_list.append(f"[כל היום: {summary}]")
+                event_list.append(f"כל היום: {summary}")
                 
-        return " | ".join(event_list)
+        return ", ".join(event_list)
     except Exception as e:
         return f"שגיאת קריאת יומן: {e}"
+
 def add_to_calendar(title, start_iso, end_iso):
     try:
         service = get_calendar_service()
-        if not service: 
-            print("❌ No Calendar Service available")
-            return False
-            
-        cal_id = os.getenv("ARCHITECT_CALENDAR_ID", "primary").strip()
-
-        # --- שיפור 1: בדיקת כפילויות לפני הוספה ---
-        existing_check = service.events().list(
-            calendarId=cal_id, 
-            timeMin=start_iso, 
-            timeMax=end_iso,
-            singleEvents=True
-        ).execute()
-        
-        for item in existing_check.get('items', []):
-            if item.get('summary') == title:
-                print(f"⚠️ Event '{title}' already exists at this time. Skipping.")
-                return True # נחשב כהצלחה כדי לא להציף הודעות שגיאה
-
-        # --- שיפור 2: מבנה אירוע מקצועי (כולל צבע ותזכורת) ---
+        if not service: return False
         event = {
             'summary': title,
-            'description': 'Target scheduled by Architect Bot',
-            'start': {
-                'dateTime': start_iso,
-                'timeZone': 'Asia/Jerusalem',
-            },
-            'end': {
-                'dateTime': end_iso,
-                'timeZone': 'Asia/Jerusalem',
-            },
-            'colorId': '1', # צבע צהוב בולט ביומן
-            'reminders': {
-                'useDefault': False,
-                'overrides': [
-                    {'method': 'popup', 'minutes': 10}, # תזכורת לנייד 10 דקות לפני
-                ],
-            },
+            'start': {'dateTime': start_iso, 'timeZone': 'Asia/Jerusalem'},
+            'end': {'dateTime': end_iso, 'timeZone': 'Asia/Jerusalem'},
         }
-
-        service.events().insert(calendarId=cal_id, body=event).execute()
-        print(f"✅ Successfully added: {title}")
+        calendar_id = os.getenv("ARCHITECT_CALENDAR_ID").strip()
+        service.events().insert(calendarId=calendar_id, body=event).execute()
         return True
-
     except Exception as e:
-        # הדפסת שגיאה מפורטת ללוגים של GitHub
-        error_msg = str(e)
-        if "404" in error_msg:
-            print(f"❌ Error 404: Calendar ID not found. Check your Secret.")
-        elif "403" in error_msg:
-            print(f"❌ Error 403: Permission Denied. Did you share the calendar with the bot email?")
-        else:
-            print(f"❌ Calendar Insert Error: {error_msg}")
+        print(f"Calendar Insert Error: {e}")
         return False
 
 def add_to_tasks(title, notes="נוצר על ידי ה-Architect Bot"):
@@ -132,13 +83,19 @@ def add_to_tasks(title, notes="נוצר על ידי ה-Architect Bot"):
         print(f"Tasks Insert Error: {e}")
         return False
 
-## ==========================================
+# ==========================================
+# חלק 2: מנוע AI (כולל זמני נסיעות, מקלחות ושינה)
+# ==========================================
+# ==========================================
 # חלק 2 המעודכן: מנוע AI (חוקי פיצול, שבת מנוחה, שיעורי בית)
 # ==========================================
 def generate_smart_schedule(existing_events):
+    # בדיקה אם היום שבת (weekday מחזיר 5 עבור יום שבת)
+    # במידה וכן - חותכים הכל ושולחים מנוחה.
     if datetime.datetime.now().weekday() == 5:
         return {
-            "calendar_updates": [], "tasks_to_add": [],
+            "calendar_updates": [],
+            "tasks_to_add": [],
             "opening_shoutout": "מה קורה אחי. שבת היום! אין משימות, אין יעדים, רק לנוח ולהטעין מצברים. שבת שלום!"
         }
 
@@ -146,42 +103,50 @@ def generate_smart_schedule(existing_events):
     today_str = datetime.datetime.now().strftime("%Y-%m-%d")
     
     prompt = f"""
-    אתה ה-Architect, מאמן ביצועים אישי של יהודה. טון: "מה קורה אחי", ישיר ומדרבן.
+    אתה ה-Architect, מאמן ביצועים אישי של יהודה. טון דיבור: "מה קורה אחי", ישיר, מדרבן.
     
-    מטרות גדולות: גיטרה, דיקציה, דיבור לקהל, פיתוח אפליקציה (בלוקים של חצי שעה בלבד!).
-    משימות קטנות: אנגלית (10 דק'), בישול (30 דק').
+    המטרות של יהודה ואופן הפיצול שלהן:
+    - מטרות גדולות: גיטרה, דיקציה, דיבור לקהל, פיתוח אפליקציה. 
+    - משימות יומיומיות: אנגלית (10 דק'), בישול בריא (30 דק').
     
-    חוקי ברזל לבניית הלו"ז - קריטי:
-    1. קריאת היומן: אלו האירועים שכבר קיימים היום ביומן של יהודה: {existing_events}.
-    2. סכנת דריסה: **אסור בשום פנים ואופן לשבץ משימה בתוך השעות של האירועים הקיימים!** אלו קירות בטון.
-    3. זמני נסיעה ומעבר (חובה): חובה להשאיר **לפחות 20 דקות ריקות** לפני תחילת כל הרצאה ביומן, ו-20 דקות ריקות אחרי סיום כל הרצאה ביומן (עבור נסיעה הביתה).
-    4. עומס שפוי: שים היום **גג מטרה גדולה אחת** של חצי שעה. 
-    5. אימון כושר רק בבוקר מוקדם, והשאר תמיד 20 דקות למקלחת לפני המשימה/ההרצאה הבאה.
+    חוקי הברזל לבניית הלו"ז של היום (קריטי!):
+    1. שיטת הפיצול (Chunking): אסור לשבץ שעה ברצף למטרות הגדולות! כל סשן של גיטרה/דיקציה/דיבור/אפליקציה יהיה בדיוק **חצי שעה**. 
+    2. פיזור שבועי ומינון יומי: אל תכניס את הכל היום. בחר **גג 1 או 2 בלוקים של חצי שעה** מהמטרות הגדולות להיום.
+    3. שיעורי בית - יוצא מן הכלל: אם מופיעה ביומן המילה "תרגול", חובה לשבץ היום בלוק של **שעה שלמה ברצף** בשם "שיעורי בית/חזרה על התרגול".
+    4. חסימות ביומן וזמני מעבר: "הרצאה" / "תרגול" / עבודה הם קירות בטון. אי אפשר לשים משימות עליהם. השאר 15 דקות רווח אחרי לימודים ו-20 דקות אחרי עבודה להתארגנות ונסיעות.
+    5. אימוני כושר: רק בבוקר! (06:00-08:30). השאר 20 דקות למקלחת לפני המשימה הבאה/הלימודים.
+    6. שנת לילה: בלי משימות בין 23:00 ל-06:00.
     
-    החזר JSON בלבד:
+    הלו"ז הקיים של יהודה להיום: {existing_events}
+    
+    החזר JSON בלבד במבנה:
     {{
       "calendar_updates": [
         {{
-          "title": "גיטרה - סשן",
-          "description": "חצי שעה אימון",
-          "start": "{today_str}T18:00:00",
-          "end": "{today_str}T18:30:00",
-          "free_time_context": "שמתי את זה כאן כי ראיתי שיש לך רווח אחרי ההרצאה והנסיעה."
+          "title": "גיטרה - סשן 1",
+          "description": "חצי שעה של אימון נטו",
+          "start": "{today_str}T16:00:00",
+          "end": "{today_str}T16:30:00",
+          "free_time_context": "שמתי לך חצי שעה של גיטרה אחרי שחזרת מהלימודים ונחת."
         }}
       ],
       "tasks_to_add": [],
-      "opening_shoutout": "מה קורה אחי, הנה המשימות להיום."
+      "opening_shoutout": "מה קורה אחי, הנה המשימות שלך להיום."
     }}
     """
     try:
         response = client.chat.completions.create(
             model="gpt-4o",
-            messages=[{"role": "system", "content": "You are a precise AI that NEVER overlaps events. JSON output only."},{"role": "user", "content": prompt}],
+            messages=[
+                {"role": "system", "content": "You are an elite, logical performance coach for Yehuda. JSON output only. Follow spacing and chunking rules perfectly."},
+                {"role": "user", "content": prompt}
+            ],
             response_format={ "type": "json_object" }
         )
         return json.loads(response.choices[0].message.content)
     except Exception as e:
-        return {"calendar_updates": [], "tasks_to_add": [], "opening_shoutout": "שגיאת AI הבוקר."}
+        print(f"AI Error: {e}")
+        return {"calendar_updates": [], "tasks_to_add": [], "opening_shoutout": "מה קורה אחי, המערכת קצת מגמגמת הבוקר."}
 # ==========================================
 # חלק 3: שליחה לטלגרם
 # ==========================================
@@ -218,4 +183,5 @@ async def main():
         print(f"Telegram Send Error: {e}")
 
 if __name__ == "__main__":
+    asyncio.run(main())
     asyncio.run(main())

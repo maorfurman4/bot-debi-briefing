@@ -67,9 +67,8 @@ def add_to_tasks(title, notes="נוצר על ידי ה-Architect Bot"):
     except Exception as e:
         print(f"Tasks Insert Error: {e}")
         return False
-
 # ==========================================
-# חלק 2: מנוע AI (OpenAI)
+# חלק 2 המעודכן: מנוע AI (עם חוק אימוני בוקר ושעות מדויקות)
 # ==========================================
 def generate_smart_schedule(existing_events):
     client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -80,25 +79,25 @@ def generate_smart_schedule(existing_events):
     הטון שלך: "מה קורה אחי", ישיר, מדרבן, בלי מילים מיותרות ובלי "בוטיות".
     
     המטרות של יהודה:
-    1. גיטרה (שעה בשבוע), אנגלית (10 דק' ביום), דיקציה (שעה בשבוע), בישול (30 דק' ביום - לעודד במקום חטיף), דיבור לקהל (שעה בשבוע), פיתוח אפליקציה (גג שעתיים בשבוע), כושר (3 פעמים בשבוע).
+    1. גיטרה (שעה בשבוע), אנגלית (10 דק' ביום), דיקציה (שעה בשבוע), בישול (30 דק' ביום), דיבור לקהל (שעה בשבוע), פיתוח אפליקציה (גג שעתיים בשבוע).
+    2. כושר: 3 פעמים בשבוע. **חוק ברזל: יהודה מתאמן רק בבקרים!** אם יש אימון היום, קבע אותו בין 06:00 ל-08:30.
     
     משימה קריטית:
-    - אל תשים את האנגלית והבישול ב-Tasks! מצא להם חלון זמן פנוי היום ושבץ אותם ב-Calendar (calendar_updates).
-    - לכל משימה שאתה מוסיף, תן תיאור קצר של "למה זה חשוב" או "איך לבצע".
-    - תנתח את הלו"ז הקיים: {existing_events}.
+    - אל תשתמש ב-Tasks למשימות של היום! מצא לכל משימה חלון זמן פנוי ושבץ ב-Calendar.
+    - תנתח את הלו"ז הקיים של יהודה היום: {existing_events}.
+    - לכל משימה ביומן, תן תיאור קצר והסבר למה בחרת בשעה הזו (free_time_context).
     
     החזר JSON במבנה הזה בלבד:
     {{
       "calendar_updates": [
         {{
-          "title": "אנגלית - 10 מילים",
-          "description": "להרחיב אוצר מילים כדי לשלוט בשפה",
-          "start": "{today_str}T10:00:00",
-          "end": "{today_str}T10:10:00",
-          "free_time_context": "יש לך חלון בין הפגישות בבוקר"
+          "title": "אימון כושר בוקר",
+          "description": "שורפים קלוריות כדי להגיע ליעד של 78 קילוגרם",
+          "start": "{today_str}T07:00:00",
+          "end": "{today_str}T08:00:00",
+          "free_time_context": "זה הזמן הכי טוב שלך להתאמן לפני שהיום מתחיל"
         }}
       ],
-      "tasks_to_add": [],
       "opening_shoutout": "מה קורה אחי, הנה המשימות שלך להיום לקידום המטרות שלך."
     }}
     """
@@ -106,7 +105,7 @@ def generate_smart_schedule(existing_events):
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=[
-                {"role": "system", "content": "You are a sharp, casual, and motivating performance coach for your brother Yehuda. JSON output only."},
+                {"role": "system", "content": "You are a sharp and motivating performance coach for Yehuda. JSON output only."},
                 {"role": "user", "content": prompt}
             ],
             response_format={ "type": "json_object" }
@@ -114,9 +113,10 @@ def generate_smart_schedule(existing_events):
         return json.loads(response.choices[0].message.content)
     except Exception as e:
         print(f"AI Error: {e}")
-        return {"calendar_updates": [], "tasks_to_add": [], "opening_shoutout": "מה קורה אחי, המערכת קצת מגמגמת אבל אל תעצור. תן עבודה היום!"}
+        return {"calendar_updates": [], "opening_shoutout": "מה קורה אחי, המערכת קצת מגמגמת אבל אל תעצור."}
+
 # ==========================================
-# חלק 3: טלגרם ותזמור המערכת
+# חלק 3 המעודכן: עדכון היומן ושליחת הודעה מפורטת
 # ==========================================
 async def main():
     token = os.getenv("TELEGRAM_TOKEN_YEHUDA")
@@ -127,44 +127,42 @@ async def main():
 
     bot = Bot(token=token)
     
-    # שליפת נתונים וניתוח
+    # 1. שליפת אירועים קיימים (כדי שה-AI לא יתנגש בהם)
     existing_events = get_todays_events()
+    
+    # 2. קבלת התוכנית מה-AI
     plan = generate_smart_schedule(existing_events)
 
-    # בניית ההודעה לטלגרם
-    message_parts = [plan.get('opening_shoutout', "מה קורה אחי, הנה המשימות שלך להיום לקידום המטרות שלך.")]
+    # 3. בניית ההודעה וביצוע העדכונים
+    message_parts = [plan.get('opening_shoutout', "מה קורה אחי, הנה המשימות:")]
     
     if plan.get('calendar_updates'):
-        message_parts.append("\n📅 **מה בתפריט (נכנס ליומן):**")
+        message_parts.append("\n📅 **מה הולך לקרות היום:**")
+        
         for event in plan['calendar_updates']:
-            # הוספה ליומן גוגל
-            add_to_calendar(event['title'], event['start'], event['end'])
+            # עדכון היומן בפועל (Google Calendar API)
+            success = add_to_calendar(event['title'], event['start'], event['end'])
             
-            # חילוץ השעה מתוך פורמט ה-ISO (למשל מ- 2024-05-15T08:00:00 לוקח רק את 08:00)
-            time_str = event['start'].split('T')[1][:5] 
+            # חילוץ השעה להצגה בהודעה
+            start_time = event['start'].split('T')[1][:5]
+            end_time = event['end'].split('T')[1][:5]
             
-            # עיצוב משימה בודדת בטלגרם
+            status_icon = "✅" if success else "❌"
+            
             message_parts.append(
-                f"🔹 *{event['title']}* ({time_str})\n"
+                f"{status_icon} **{start_time} - {event['title']}**\n"
                 f"📝 {event.get('description', '')}\n"
-                f"⏰ {event.get('free_time_context', 'זמן פנוי שמצאתי לך')}\n"
+                f"⏰ {event.get('free_time_context', '')}\n"
             )
+    else:
+        message_parts.append("\nהיום היומן שלך מלא או שהחלטנו לנוח. תתמקד במה שיש!")
 
-    if plan.get('tasks_to_add'):
-        message_parts.append("\n✅ **קטנות בדרך (Tasks):**")
-        for task in plan['tasks_to_add']:
-            add_to_tasks(task)
-            message_parts.append(f"• {task}")
-
-    # סגירת ההודעה כמו שביקשת
     message_parts.append("\nמקווה שתתמיד ותעשה הכל, אני כאן.")
     
-    # חיבור כל החלקים להודעה אחת שלימה
     final_message = "\n".join(message_parts)
     
     try:
         await bot.send_message(chat_id=chat_id, text=final_message, parse_mode="Markdown")
-        print("Message sent successfully!")
     except Exception as e:
         print(f"Telegram Send Error: {e}")
 

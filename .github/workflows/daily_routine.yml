@@ -27,7 +27,7 @@ jobs:
         TELEGRAM_TOKEN_YEHUDA: ${{ secrets.TELEGRAM_TOKEN_YEHUDA }}
         CHAT_ID: ${{ secrets.CHAT_ID }}
         OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-        GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+        ARCHITECT_GOOGLE_JSON: ${{ secrets.ARCHITECT_GOOGLE_JSON }}
+        ARCHITECT_CALENDAR_ID: ${{ secrets.ARCHITECT_CALENDAR_ID }}
         GOOGLE_TASKS_CREDENTIALS: ${{ secrets.GOOGLE_TASKS_CREDENTIALS }}
-        GOOGLE_CALENDAR_ICS: ${{ secrets.GOOGLE_CALENDAR_ICS }}
       run: python goals_bot.py

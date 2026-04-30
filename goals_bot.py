@@ -9,13 +9,13 @@ from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 
 # ==========================================
-# חלק 1: אינטגרציה עם גוגל (שימוש בסודות החדשים!)
+# ─── חלק 1: אינטגרציה עם גוגל ──────────────
 # ==========================================
 CALENDAR_SCOPES = ['https://www.googleapis.com/auth/calendar']
 TASKS_SCOPES = ['https://www.googleapis.com/auth/tasks']
 
 def get_calendar_service():
-    creds_json = os.getenv("ARCHITECT_GOOGLE_JSON") # משתמש בסוד החדש!
+    creds_json = os.getenv("ARCHITECT_GOOGLE_JSON") 
     if not creds_json: return None
     creds = service_account.Credentials.from_service_account_info(json.loads(creds_json), scopes=CALENDAR_SCOPES)
     return build('calendar', 'v3', credentials=creds)
@@ -34,25 +34,26 @@ def get_todays_events():
         now = datetime.datetime.utcnow().isoformat() + 'Z'
         end_of_day = (datetime.datetime.utcnow() + datetime.timedelta(hours=24)).isoformat() + 'Z'
         
-        events_result = service.events().list(calendarId=calendar_id, timeMin=now, timeMax=end_of_day, singleEvents=True, orderBy='startTime').execute()
+        events_result = service.events().list(
+            calendarId=calendar_id, timeMin=now, timeMax=end_of_day, 
+            singleEvents=True, orderBy='startTime').execute()
         events = events_result.get('items', [])
         
-        if not events: return "אין אירועים ביומן היום. הלוז פנוי לחלוטין."
+        if not events: return "הלוז פנוי לחלוטין."
         
         event_list = []
         for e in events:
             summary = e.get('summary', 'Unknown')
-            # חילוץ שעות התחלה וסיום בצורה ברורה
             start = e['start'].get('dateTime')
             end = e['end'].get('dateTime')
             if start and end:
                 start_time = start.split('T')[1][:5]
                 end_time = end.split('T')[1][:5]
-                event_list.append(f"{start_time}-{end_time}: {summary}")
+                event_list.append(f"[{start_time} - {end_time}]: תפוס - {summary}")
             else:
-                event_list.append(f"כל היום: {summary}")
+                event_list.append(f"[כל היום]: תפוס - {summary}")
                 
-        return ", ".join(event_list)
+        return "\n".join(event_list)
     except Exception as e:
         return f"שגיאת קריאת יומן: {e}"
 
@@ -72,54 +73,53 @@ def add_to_calendar(title, start_iso, end_iso):
         print(f"Calendar Insert Error: {e}")
         return False
 
-def add_to_tasks(title, notes="נוצר על ידי ה-Architect Bot"):
-    try:
-        service = get_tasks_service()
-        if not service: return False
-        task = {'title': title, 'notes': notes}
-        service.tasks().insert(tasklist='@default', body=task).execute()
-        return True
-    except Exception as e:
-        print(f"Tasks Insert Error: {e}")
-        return False
-
 # ==========================================
-# חלק 2: מנוע AI (כולל זמני נסיעות, מקלחות ושינה)
-# ==========================================
-# ==========================================
-# חלק 2 המעודכן: מנוע AI (חוקי פיצול, שבת מנוחה, שיעורי בית)
+# ─── חלק 2: מנוע AI (חוקי התנגשות ופיצול) ──
 # ==========================================
 def generate_smart_schedule(existing_events):
-    # בדיקה אם היום שבת (weekday מחזיר 5 עבור יום שבת)
-    # במידה וכן - חותכים הכל ושולחים מנוחה.
-    if datetime.datetime.now().weekday() == 5:
+    now = datetime.datetime.now()
+    weekday = now.weekday()
+    
+    # חוק מנוחה בשבת (5 = שבת)
+    if weekday == 5:
         return {
             "calendar_updates": [],
-            "tasks_to_add": [],
             "opening_shoutout": "מה קורה אחי. שבת היום! אין משימות, אין יעדים, רק לנוח ולהטעין מצברים. שבת שלום!"
         }
 
     client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-    today_str = datetime.datetime.now().strftime("%Y-%m-%d")
+    today_str = now.strftime("%Y-%m-%d")
     
+    # פיצול מטרות חכם לפי ימים כדי למנוע עומס
+    focus_map = {
+        0: "גיטרה ודיקציה",           # שני
+        1: "פיתוח אפליקציה",         # שלישי
+        2: "דיבור לקהל ודיקציה",      # רביעי
+        3: "גיטרה ופיתוח אפליקציה",  # חמישי
+        4: "השלמות לשבוע (גיטרה או אפליקציה)", # שישי
+        6: "ארגון מטרות, גיטרה"       # ראשון
+    }
+    todays_focus = focus_map.get(weekday, "גיטרה")
+
     prompt = f"""
-    אתה ה-Architect, מאמן ביצועים אישי של יהודה. טון דיבור: "מה קורה אחי", ישיר, מדרבן.
+    אתה ה-Architect, מאמן ביצועים אישי של מאור. טון דיבור: "מה קורה אחי", ישיר, מדרבן.
     
-    המטרות של יהודה ואופן הפיצול שלהן:
-    - מטרות גדולות: גיטרה, דיקציה, דיבור לקהל, פיתוח אפליקציה. 
-    - משימות יומיומיות: אנגלית (10 דק'), בישול בריא (30 דק').
+    הלו"ז התפוס של מאור להיום ({today_str}):
+    {existing_events}
     
-    חוקי הברזל לבניית הלו"ז של היום (קריטי!):
-    1. שיטת הפיצול (Chunking): אסור לשבץ שעה ברצף למטרות הגדולות! כל סשן של גיטרה/דיקציה/דיבור/אפליקציה יהיה בדיוק **חצי שעה**. 
-    2. פיזור שבועי ומינון יומי: אל תכניס את הכל היום. בחר **גג 1 או 2 בלוקים של חצי שעה** מהמטרות הגדולות להיום.
-    3. שיעורי בית - יוצא מן הכלל: אם מופיעה ביומן המילה "תרגול", חובה לשבץ היום בלוק של **שעה שלמה ברצף** בשם "שיעורי בית/חזרה על התרגול".
-    4. חסימות ביומן וזמני מעבר: "הרצאה" / "תרגול" / עבודה הם קירות בטון. אי אפשר לשים משימות עליהם. השאר 15 דקות רווח אחרי לימודים ו-20 דקות אחרי עבודה להתארגנות ונסיעות.
-    5. אימוני כושר: רק בבוקר! (06:00-08:30). השאר 20 דקות למקלחת לפני המשימה הבאה/הלימודים.
-    6. שנת לילה: בלי משימות בין 23:00 ל-06:00.
+    המטרות להיום בלבד (כדי לא להעמיס על השבוע):
+    - מיקוד ראשי להיום: **{todays_focus}**
+    - חובות יומיות: אנגלית (10 דק'), בישול בריא (30 דק').
     
-    הלו"ז הקיים של יהודה להיום: {existing_events}
+    חוקי ברזל למניעת התנגשויות (קריטי! קריטי! קריטי!):
+    1. אסור לשבץ שום משימה על גבי השעות שרשומות כ"תפוס" בלו"ז! חפש רק את ה"חורים" (זמן פנוי) בין האירועים.
+    2. חסימות ביומן: השאר 15 דקות רווח אחרי אירוע לימודים ו-20 דקות אחרי עבודה לנסיעות והתארגנות.
+    3. פיצול: כל סשן של מטרה גדולה יהיה בדיוק חצי שעה. אם צריך, שים 2 סשנים בהפרש של שעות.
+    4. שיעורי בית: אם מופיע בלו"ז התפוס אירוע שקשור ללימודים (הרצאה/תרגול/מעבדה), חובה לשבץ חלון של שעה אחת ברצף בשם "שיעורי בית/חזרה" בזמן פנוי בערב או אחה"צ.
+    5. אימוני כושר: רק בבוקר! (06:00-08:30). השאר 20 דקות למקלחת לפני הלו"ז הבא.
+    6. שנת לילה: אין משימות בין 23:00 ל-06:00.
     
-    החזר JSON בלבד במבנה:
+    החזר JSON בלבד במבנה מדויק זה:
     {{
       "calendar_updates": [
         {{
@@ -127,33 +127,37 @@ def generate_smart_schedule(existing_events):
           "description": "חצי שעה של אימון נטו",
           "start": "{today_str}T16:00:00",
           "end": "{today_str}T16:30:00",
-          "free_time_context": "שמתי לך חצי שעה של גיטרה אחרי שחזרת מהלימודים ונחת."
+          "free_time_context": "שמתי לך חצי שעה גיטרה בין התרגול להרצאה."
         }}
       ],
-      "tasks_to_add": [],
-      "opening_shoutout": "מה קורה אחי, הנה המשימות שלך להיום."
+      "opening_shoutout": "מה קורה אחי, הנה המשימות שלך להיום מותאמות בדיוק ללוז."
     }}
     """
     try:
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=[
-                {"role": "system", "content": "You are an elite, logical performance coach for Yehuda. JSON output only. Follow spacing and chunking rules perfectly."},
+                {"role": "system", "content": "You are an elite, logical performance coach for Maor. JSON output only. Prevent ALL time collisions based on the provided schedule."},
                 {"role": "user", "content": prompt}
             ],
-            response_format={ "type": "json_object" }
+            response_format={ "type": "json_object" },
+            temperature=0.2 # טמפרטורה נמוכה כדי שיהיה מדויק בשעות ולא יהזה
         )
         return json.loads(response.choices[0].message.content)
     except Exception as e:
         print(f"AI Error: {e}")
-        return {"calendar_updates": [], "tasks_to_add": [], "opening_shoutout": "מה קורה אחי, המערכת קצת מגמגמת הבוקר."}
+        return {"calendar_updates": [], "opening_shoutout": "מערכת מגמגמת."}
+
 # ==========================================
-# חלק 3: שליחה לטלגרם
+# ─── חלק 3: שליחה לטלגרם ───────────────────
 # ==========================================
 async def main():
-    token = os.getenv("TELEGRAM_TOKEN_YEHUDA")
+    token = os.getenv("TELEGRAM_TOKEN_YEHUDA") # השארתי את השם של הסוד כדי שלא תצטרך לשנות בגיטהאב
     chat_id = os.getenv("CHAT_ID")
-    if not token or not chat_id: return
+    if not token or not chat_id: 
+        print("Missing Telegram Secrets")
+        return
+        
     bot = Bot(token=token)
     
     existing_events = get_todays_events()
@@ -183,5 +187,5 @@ async def main():
         print(f"Telegram Send Error: {e}")
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    # התיקון כאן: הוסרה הקריאה הכפולה שגרמה לבוט לשלוח שתי הודעות
     asyncio.run(main())

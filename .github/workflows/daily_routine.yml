@@ -1,9 +1,6 @@
 name: Yehuda Goal Architect Daily Run
 
 on:
-  schedule:
-    - cron: '0 0 * * *' # רץ ב-07:00 בבוקר שעון ישראל
-  workflow_dispatch:
 
 jobs:
   run-bot:

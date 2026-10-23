@@ -46,8 +46,8 @@ CALENDARS = [url for url in [
 ] if url and url.strip()]
 
 STOCKS = [
-    "INTC", "TSLA", "MBLY", "ASPI", "TEVA",
-    "GOOG", "QBTS", "AMZN", "GRAB", "SEPN", "NVO",
+    "INTC", "MBLY", "TSLA", "SPCX", "TEVA",
+    "NVO", "QBTS", "AMZN", "GOOG",
 ]
 
 TEL_AVIV = (32.0853, 34.7818)

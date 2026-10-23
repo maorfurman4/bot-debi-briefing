@@ -3,23 +3,25 @@
 בוט טלגרם ששולח כל בוקר הודעה אחת מסודרת להתחלת היום.
 
 ## מה בהודעה
-1. ברכת בוקר ותאריך
-2. מזג אוויר בתל אביב — 08:00 / 13:00 / 18:00, UV, לחות, רוח, זריחה ושקיעה
-3. המלצת לבוש (ביום מעבדה — מכנסיים ארוכים ונעליים סגורות)
-4. השעה הכי טובה לאימון לפי מזג האוויר והלו"ז
-5. מניות שזזו יותר מ-5%
-6. משימות מ-Google Tasks
-7. הלו"ז של היום מהיומן
+1. "בוקר טוב מאור" — פתיח אחר לכל יום בחודש
+2. מזג אוויר בתל אביב (Open-Meteo): מקס'/מינ', תחזית ל-07/10/13/16/19/22 עם "מרגיש כמו", סיכוי לגשם, לחות ורוח, זריחה ושקיעה, התראת UV/מטריה
+3. הלו"ז של היום מהיומן, לפי שעות, כולל חלונות פנויים של שעה ומעלה
+4. מה צריך לעשות היום: משימות קבועות (`routines.py`) + משימות מ-Google Tasks (מה שיוסי מוסיף), כולל משימות באיחור
+5. המניות שלי — שינוי יומי ומחיר לכל מניה ברשימה `STOCKS`
 
 ## מתי
-כל יום בבוקר (GitHub Actions, `.github/workflows/main.yml`). אפשר גם להריץ ידנית: Actions → "תדריך בוקר דבי" → Run workflow.
+כל יום ב-00:00 UTC (GitHub Actions, `.github/workflows/main.yml`). אפשר גם להריץ ידנית: Actions → "תדריך בוקר דבי" → Run workflow.
 
 ## קבצים
 | קובץ | תפקיד |
 |---|---|
-| `bot.py` | כל הלוגיקה |
+| `bot.py` | כל הלוגיקה. `python bot.py --dry-run` מדפיס את ההודעה בלי לשלוח |
+| `routines.py` | המשימות הקבועות (יומי / שבועי / חודשי / שנתי) |
+| `test_bot.py` | בדיקות קצרות: `python test_bot.py` |
 | `requirements.txt` | ספריות פייתון |
 | `.github/workflows/main.yml` | התזמון |
 
 ## סודות (Settings → Secrets → Actions)
-`BOT_TOKEN`, `CHAT_ID`, `OPENAI_API_KEY`, `OPENWEATHER_API_KEY`, `GOOGLE_TASKS_CREDENTIALS`, `GOOGLE_CALENDAR_ICS`, `GOOGLE_CALENDAR_ICS_2`, `GOOGLE_CALENDAR_ICS_3`
+`BOT_TOKEN`, `CHAT_ID`, `GOOGLE_TASKS_CREDENTIALS`, `GOOGLE_CALENDAR_ICS_2`, `GOOGLE_CALENDAR_ICS_3`
+
+יומן ראשי: כתובת ה-ICS כתובה ב-`bot.py` (`DEFAULT_ICS`).

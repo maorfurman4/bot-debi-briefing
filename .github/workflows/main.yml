@@ -22,13 +22,9 @@ jobs:
 
       - name: Run Bot
         env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
-          OPENWEATHER_API_KEY: ${{ secrets.OPENWEATHER_API_KEY }}
-          GOOGLE_CALENDAR_ICS: ${{ secrets.GOOGLE_CALENDAR_ICS }}
           GOOGLE_CALENDAR_ICS_2: ${{ secrets.GOOGLE_CALENDAR_ICS_2 }}
           GOOGLE_CALENDAR_ICS_3: ${{ secrets.GOOGLE_CALENDAR_ICS_3 }}
-          # השורה החדשה שהוספתי: מעבירה את הסוד של Tasks לקוד של פייתון
           GOOGLE_TASKS_CREDENTIALS: ${{ secrets.GOOGLE_TASKS_CREDENTIALS }}
         run: python bot.py

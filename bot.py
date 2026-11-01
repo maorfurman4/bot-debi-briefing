@@ -17,7 +17,6 @@ import datetime as dt_module
 from zoneinfo import ZoneInfo
 
 import requests
-import yfinance as yf
 from dotenv import load_dotenv
 from telegram import Bot
 
@@ -44,11 +43,6 @@ CALENDARS = [url for url in [
     os.getenv("GOOGLE_CALENDAR_ICS_3", ""),
     os.getenv("GOOGLE_CALENDAR_ICS_4", ""),
 ] if url and url.strip()]
-
-STOCKS = [
-    "INTC", "MBLY", "TSLA", "SPCX", "TEVA",
-    "NVO", "QBTS", "AMZN", "GOOG",
-]
 
 TEL_AVIV = (32.0853, 34.7818)
 
@@ -112,85 +106,25 @@ def get_greeting(today: date) -> str:
     # פתיח קבוע לכל יום בחודש; ה-31 חוזר לראשון
     return GREETINGS[(today.day - 1) % len(GREETINGS)]
 
-# ── מזג אוויר (Open-Meteo, תחזית שעתית לתל אביב) ─────────────────────────────
-
-WEATHER_HOURS = ["07:00", "10:00", "13:00", "16:00", "19:00", "22:00"]
-
-def _weather_icon(code: int) -> str:
-    if code == 0:            return "☀️"
-    if code in (1, 2):       return "🌤️"
-    if code == 3:            return "☁️"
-    if code in (45, 48):     return "🌫️"
-    if 51 <= code <= 67:     return "🌧️"
-    if 80 <= code <= 82:     return "🌦️"
-    if code >= 95:           return "⛈️"
-    return "🌡️"
+# ── מזג אוויר (Open-Meteo, תל אביב): טווח יומי, זריחה ושקיעה ──────────────────
 
 def get_weather() -> str:
     try:
         lat, lon = TEL_AVIV
         om = requests.get(
             "https://api.open-meteo.com/v1/forecast",
-            params={
-                "latitude": lat, "longitude": lon, "timezone": "Asia/Jerusalem", "forecast_days": 1,
-                "hourly": "temperature_2m,apparent_temperature,precipitation_probability,weather_code,wind_speed_10m,relative_humidity_2m",
-                "daily": "temperature_2m_max,temperature_2m_min,uv_index_max,precipitation_probability_max,sunrise,sunset",
-            },
+            params={"latitude": lat, "longitude": lon, "timezone": "Asia/Jerusalem", "forecast_days": 1,
+                    "daily": "temperature_2m_max,temperature_2m_min,sunrise,sunset"},
             timeout=15,
         )
         om.raise_for_status()
-        om = om.json()
-        h, d = om["hourly"], om["daily"]
-
-        t_max, t_min = d["temperature_2m_max"][0], d["temperature_2m_min"][0]
-        uv_max, rain_max = d["uv_index_max"][0], d["precipitation_probability_max"][0] or 0
-        sunrise, sunset = d["sunrise"][0][11:16], d["sunset"][0][11:16]
-
-        lines = [
-            "🌡️ <b>מזג אוויר — תל אביב</b>",
-            f"⬆️ {t_max:.0f}° ⬇️ {t_min:.0f}° | ☔ גשם עד {rain_max}% | UV מקס' {uv_max:.0f}",
-        ]
-        for hour in WEATHER_HOURS:
-            i = h["time"].index(f"{h['time'][0][:10]}T{hour}")
-            lines.append(
-                f"{_weather_icon(h['weather_code'][i])} <b>{hour}</b> {h['temperature_2m'][i]:.0f}° "
-                f"(מרגיש {h['apparent_temperature'][i]:.0f}°) · ☔ {h['precipitation_probability'][i]}% "
-                f"· 💧 {h['relative_humidity_2m'][i]}% · 💨 {h['wind_speed_10m'][i]:.0f} קמ\"ש"
-            )
-        lines.append(f"🌅 זריחה {sunrise} | 🌇 שקיעה {sunset}")
-        if uv_max >= 8:
-            lines.append("🧴 UV גבוה — קרם הגנה")
-        if rain_max >= 40:
-            lines.append("☂️ סיכוי לגשם — לקחת מטריה")
-        return "\n".join(lines)
+        d = om.json()["daily"]
+        return (f"🌡️ <b>מזג אוויר — תל אביב</b>\n"
+                f"⬆️ {d['temperature_2m_max'][0]:.0f}° ⬇️ {d['temperature_2m_min'][0]:.0f}° | "
+                f"🌅 זריחה {d['sunrise'][0][11:16]} | 🌇 שקיעה {d['sunset'][0][11:16]}")
     except Exception as ex:
         fail("מזג אוויר", ex)
         return "🌡️ <b>מזג אוויר</b> — שגיאה בטעינה 😅"
-
-# ── מניות ──────────────────────────────────────────────────────────────────────
-
-def get_stocks() -> str:
-    rows, no_data = [], []
-    for ticker in STOCKS:
-        try:
-            closes = yf.Ticker(ticker).history(period="5d")["Close"].dropna()
-            if len(closes) < 2:
-                no_data.append(ticker)
-                continue
-            prev, curr = closes.iloc[-2], closes.iloc[-1]
-            rows.append((((curr - prev) / prev) * 100, ticker, curr))
-        except Exception:
-            no_data.append(ticker)
-
-    if no_data:
-        fail("מניות", f"אין נתונים ל-{', '.join(no_data)}")
-    if not rows:
-        return ""
-    lines = ["📊 <b>המניות שלי</b> <i>(שינוי יומי בסגירה האחרונה)</i>"]
-    for pct, ticker, curr in sorted(rows, reverse=True):
-        icon = "🚀" if pct >= 5 else "📈" if pct > 0 else "💥" if pct <= -5 else "📉" if pct < 0 else "➖"
-        lines.append(f"{icon} <b>{ticker}</b> {pct:+.1f}% · ${curr:.2f}")
-    return "\n".join(lines)
 
 # ── משימות: קבועות (routines.py) + של יוסי (Google Tasks) ───────────────────
 
@@ -326,7 +260,6 @@ def build_message() -> str:
         get_weather(),
         get_calendar(today),
         get_tasks(today),
-        get_stocks(),
     ]
     if FAILURES:
         sections.append("⚠️ <b>מה לא עבד היום:</b>\n" + "\n".join(FAILURES))

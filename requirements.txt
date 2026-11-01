@@ -1,6 +1,5 @@
 python-telegram-bot>=20.0
 requests>=2.31
-yfinance>=0.2.40
 python-dotenv>=1.0
 icalendar>=5.0
 recurring-ical-events>=2.0.0

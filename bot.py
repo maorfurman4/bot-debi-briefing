@@ -200,7 +200,8 @@ MONDAY_ITEMS = """query ($ids: [ID!]) { boards(ids: $ids) { items_page(limit: 50
   name group { title } column_values { column { title } text } } } } }"""
 # דבי לא יכולה לקבל לחיצות (GitHub Actions) — הקישור פותח את יוסי ושולח "/start today": רשימת היום עם ✅
 YOSSI_TODAY = "https://t.me/shifts_calmder_bot?start=today"
-DUE_IN = {0: "🔥 <b>היום</b>", 1: "⏳ <b>מחר</b>", 3: "⏳ <b>עוד 3 ימים</b>", 7: "📆 <b>עוד שבוע</b>"}
+# "גג יום לפני" (הכלל של מאור): דדליין מחר = היום הוא היום האחרון להגיש
+DUE_IN = {0: "🔥 <b>היום</b>", 1: "🔥 <b>מחר — גג להגיש היום</b>", 3: "⏳ <b>עוד 3 ימים</b>", 7: "📆 <b>עוד שבוע</b>"}
 
 def monday_gql(query: str, **variables) -> dict:
     for attempt in range(2):  # 429 — monday אומר כמה לחכות; ניסיון אחד נוסף

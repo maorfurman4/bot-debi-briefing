@@ -43,6 +43,7 @@ lines = monday_lines([
     mi("תקוע", status="תקוע"),
 ], d)
 assert [l.split(" · ")[1].split(" <i>")[0] for l in lines] == ["היום", "מחר", "בעוד 3", "בעוד שבוע", "תקוע"]
+assert lines[1].startswith("🔥 <b>מחר — גג להגיש היום</b> · ")
 assert lines[2].startswith("⏳ <b>עוד 3 ימים</b> (28/10)") and lines[0].endswith("<i>(🎯 AMIRNET)</i>")
 assert monday_lines([], d) == []
 

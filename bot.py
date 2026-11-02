@@ -222,14 +222,16 @@ def monday_items() -> list:
             cols = {cv["column"]["title"]: cv["text"] or "" for cv in it["column_values"]}  # לפי שם עמודה, לא מזהה
             # הקבוצה היא הפרויקט / הקורס / סוג המשימה האישית
             items.append({"name": it["name"], "group": it["group"]["title"], "status": cols.get("סטטוס", ""),
-                          "deadline": cols.get("דדליין", "")[:10]})
+                          "deadline": cols.get("דדליין", "")[:10],
+                          "planned": cols.get("📅 מתוכנן ל", "")[:10]})  # היום שמאור תכנן לעבוד עליו
     return items
 
 def monday_lines(items: list, today: date) -> list:
     # "בוצע" = נעשה, בכל קבוצה שהוא (אין אוטומציה שמעבירה לארכיון)
     open_items = [i for i in items if i["status"] != "בוצע" and "ארכיון" not in i["group"]]
     row = lambda i: f"{esc(i['name'])} <i>({esc(i['group'])})</i>"
-    lines = []
+    planned = [f"• {row(i)}" for i in open_items if i["planned"] == today.isoformat()]
+    lines = ["📌 <b>מתוכנן להיום:</b>", *planned] if planned else []
     for i in sorted((i for i in open_items if i["deadline"]), key=lambda i: i["deadline"]):
         days = (date.fromisoformat(i["deadline"]) - today).days
         if days in DUE_IN:
@@ -248,8 +250,8 @@ def get_monday(today: date) -> str:
         fail("monday", ex)
         return ""
     if not lines:
-        return "🗂️ <b>monday:</b> אין דדליינים קרובים ואין משימות תקועות ✨"
-    return "🗂️ <b>monday — דדליינים ותקועים:</b>\n" + "\n".join(lines)
+        return "🗂️ <b>monday:</b> לא תכננת כלום להיום, אין דדליינים קרובים ואין משימות תקועות ✨"
+    return "🗂️ <b>monday:</b>\n" + "\n".join(lines)
 
 # ── Google Calendar ────────────────────────────────────────────────────────────
 

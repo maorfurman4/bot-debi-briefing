@@ -35,8 +35,8 @@ assert "private-secret" not in bot.FAILURES[-1] and "<url>" in bot.FAILURES[-1].
 
 # 🗂️ monday: היום / מחר / עוד 3 / עוד שבוע + תקועים; בלי "בוצע" ובלי ארכיון
 from bot import monday_lines
-def mi(name, deadline="", status="לא התחיל", group="🎯 AMIRNET"):
-    return {"name": name, "deadline": deadline, "status": status, "group": group}
+def mi(name, deadline="", status="לא התחיל", group="🎯 AMIRNET", planned=""):
+    return {"name": name, "deadline": deadline, "status": status, "group": group, "planned": planned}
 lines = monday_lines([
     mi("היום", "2026-10-25"), mi("מחר", "2026-10-26"), mi("בעוד 3", "2026-10-28"), mi("בעוד שבוע", "2026-11-01"),
     mi("בעוד 2", "2026-10-27"), mi("בוצע היום", "2026-10-25", "בוצע"), mi("ארכיון", "2026-10-25", group="📦 ארכיון"),
@@ -45,6 +45,17 @@ lines = monday_lines([
 assert [l.split(" · ")[1].split(" <i>")[0] for l in lines] == ["היום", "מחר", "בעוד 3", "בעוד שבוע", "תקוע"]
 assert lines[2].startswith("⏳ <b>עוד 3 ימים</b> (28/10)") and lines[0].endswith("<i>(🎯 AMIRNET)</i>")
 assert monday_lines([], d) == []
+
+# 📌 מתוכנן להיום — בראש החלק של monday; בלי "בוצע"; שם הפרויקט/הקורס מהקבוצה
+lines = monday_lines([
+    mi("דדליין מחר", "2026-10-26"),
+    mi("לעבוד על SMTP", planned="2026-10-25"),
+    mi("מטלה 3", planned="2026-10-25", group="🔢 אנליזה נומרית"),
+    mi("כבר בוצע", planned="2026-10-25", status="בוצע"),
+    mi("מתוכנן למחר", planned="2026-10-26"),
+], d)
+assert lines[:3] == ["📌 <b>מתוכנן להיום:</b>", "• לעבוד על SMTP <i>(🎯 AMIRNET)</i>", "• מטלה 3 <i>(🔢 אנליזה נומרית)</i>"]
+assert lines[3].startswith("⏳ <b>מחר</b> · דדליין מחר") and len(lines) == 4
 
 # 🔎 לוחות לפי שם: רק לוחות עם "סטטוס"; הקבוצה היא הפרויקט
 asked = []
@@ -62,10 +73,12 @@ class FakeResp:
         asked.append(self.body["variables"]["ids"])
         return {"data": {"boards": [{"items_page": {"items": [{"name": "כן", "group": {"title": "🎯 AMIRNET"},
                 "column_values": [{"column": {"title": "סטטוס"}, "text": "תקוע"},
-                                  {"column": {"title": "דדליין"}, "text": "2026-10-26"}]}]}}]}}
+                                  {"column": {"title": "דדליין"}, "text": "2026-10-26"},
+                                  {"column": {"title": "📅 מתוכנן ל"}, "text": "2026-10-25"}]}]}}]}}
 _post = bot.requests.post
 bot.requests.post = lambda *a, **k: FakeResp(k["json"])
-assert bot.monday_items() == [{"name": "כן", "group": "🎯 AMIRNET", "status": "תקוע", "deadline": "2026-10-26"}]
+assert bot.monday_items() == [{"name": "כן", "group": "🎯 AMIRNET", "status": "תקוע", "deadline": "2026-10-26",
+                               "planned": "2026-10-25"}]
 assert asked == [["1"]]  # פריטים רק מלוחות המשימות, לפי מזהה
 bot.requests.post = _post
 

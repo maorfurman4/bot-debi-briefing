@@ -235,7 +235,9 @@ def get_monday(today: date) -> str:
     except Exception as ex:
         fail("monday", ex)
         return ""
-    return "🗂️ <b>monday — דדליינים ותקועים:</b>\n" + "\n".join(lines) if lines else ""
+    if not lines:
+        return "🗂️ <b>monday:</b> אין דדליינים קרובים ואין משימות תקועות ✨"
+    return "🗂️ <b>monday — דדליינים ותקועים:</b>\n" + "\n".join(lines)
 
 # ── Google Calendar ────────────────────────────────────────────────────────────
 

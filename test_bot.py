@@ -33,4 +33,17 @@ import bot
 bot.fail("יומן 1", "404 for url: https://calendar.google.com/private-secret/basic.ics")
 assert "private-secret" not in bot.FAILURES[-1] and "<url>" in bot.FAILURES[-1].replace("&lt;", "<").replace("&gt;", ">")
 
+# 🗂️ monday: היום / מחר / עוד 3 / עוד שבוע + תקועים; בלי "בוצע" ובלי ארכיון
+from bot import monday_lines
+def mi(name, deadline="", status="לא התחיל", group="g"):
+    return {"name": name, "deadline": deadline, "status": status, "group": group, "where": "🎯 AMIRNET"}
+lines = monday_lines([
+    mi("היום", "2026-10-25"), mi("מחר", "2026-10-26"), mi("בעוד 3", "2026-10-28"), mi("בעוד שבוע", "2026-11-01"),
+    mi("בעוד 2", "2026-10-27"), mi("בוצע היום", "2026-10-25", "בוצע"), mi("ארכיון", "2026-10-25", group="📦 ארכיון"),
+    mi("תקוע", status="תקוע"),
+], d)
+assert [l.split(" · ")[1].split(" <i>")[0] for l in lines] == ["היום", "מחר", "בעוד 3", "בעוד שבוע", "תקוע"]
+assert lines[2].startswith("⏳ <b>עוד 3 ימים</b> (28/10)") and lines[0].endswith("<i>(🎯 AMIRNET)</i>")
+assert monday_lines([], d) == []
+
 print("ok")

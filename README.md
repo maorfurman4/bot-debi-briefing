@@ -7,7 +7,9 @@
 2. מזג אוויר בתל אביב (Open-Meteo): טמפרטורה מקס'/מינ', זריחה ושקיעה
 3. הלו"ז של היום מהיומן, לפי שעות, כולל חלונות פנויים של שעה ומעלה
 4. מה צריך לעשות היום: משימות קבועות (`routines.py`) + משימות מ-Google Tasks (מה שיוסי מוסיף), כולל משימות באיחור
-5. ⚠️ מה לא עבד — רק אם חלק נכשל (למשל Google Tasks או יומן), כדי שנדע מה לתקן
+5. 🗂️ monday — מכל הלוחות: מה בדדליין היום, מחר, בעוד 3 ימים ובעוד שבוע, ומה בסטטוס "תקוע"
+   (בלי "בוצע" ובלי קבוצות ארכיון; העמודות נקראות לפי השם "סטטוס"/"דדליין")
+6. ⚠️ מה לא עבד — רק אם חלק נכשל (למשל Google Tasks או יומן), כדי שנדע מה לתקן
 
 ## מתי
 כל יום ב-00:00 UTC = 02:00 בחורף / 03:00 בקיץ (GitHub Actions, `.github/workflows/main.yml`; לפעמים GitHub מאחר).
@@ -23,6 +25,6 @@
 | `.github/workflows/main.yml` | התזמון |
 
 ## סודות (Settings → Secrets → Actions)
-`BOT_TOKEN`, `CHAT_ID`, `GOOGLE_TASKS_CREDENTIALS`, `GOOGLE_CALENDAR_ICS_2`, `GOOGLE_CALENDAR_ICS_3`
+`BOT_TOKEN`, `CHAT_ID`, `GOOGLE_TASKS_CREDENTIALS`, `GOOGLE_CALENDAR_ICS_2`, `GOOGLE_CALENDAR_ICS_3`, `MONDAY_API_TOKEN`
 
 יומן ראשי: כתובת ה-ICS כתובה ב-`bot.py` (`DEFAULT_ICS`).

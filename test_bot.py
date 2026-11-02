@@ -46,6 +46,15 @@ assert [l.split(" · ")[1].split(" <i>")[0] for l in lines] == ["היום", "מ�
 assert lines[2].startswith("⏳ <b>עוד 3 ימים</b> (28/10)") and lines[0].endswith("<i>(🎯 AMIRNET)</i>")
 assert monday_lines([], d) == []
 
+# 🔁 שגרה: מתוכננת היום לא נכנסת ל"מתוכנן להיום" (כבר מוצגת למעלה); שגרה שסומנה ✅ לא מוצגת
+assert monday_lines([mi("ראשון · להישקל", planned="2026-10-25", group="🔁 שגרה שבועית")], d) == []
+bot.get_google_tasks = lambda today: []
+bot.ROUTINES[:] = [{"title": "להישקל", "every": "weekly", "days": ["ראשון"]},
+                   {"title": "להתגלח", "every": "weekly", "days": ["ראשון"]}]
+done = [mi("ראשון · להישקל", status="בוצע", group="📦 ארכיון")]
+assert bot.get_tasks(d, done) == "📋 <b>מה צריך לעשות היום:</b>\n🔁 להתגלח"
+assert bot.get_tasks(d, None) == "📋 <b>מה צריך לעשות היום:</b>\n🔁 להישקל\n🔁 להתגלח"  # monday נפל — מציגים הכל
+
 # 📌 מתוכנן להיום — בראש החלק של monday; בלי "בוצע"; שם הפרויקט/הקורס מהקבוצה
 lines = monday_lines([
     mi("דדליין מחר", "2026-10-26"),

@@ -183,8 +183,11 @@ def get_google_tasks(today: date) -> list:
             lines.append(f"⏰ {title} <i>(באיחור מ-{due[8:10]}/{due[5:7]})</i>")
     return lines
 
-def get_tasks(today: date) -> str:
-    lines = [f"🔁 {esc(t)}" for t in todays_routines(today)] + get_google_tasks(today)
+def get_tasks(today: date, monday: list | None = None) -> str:
+    # שגרה שכבר סומנה ✅ ב-monday ("שבת · להתגלח", קבוצה "🔁 שגרה שבועית") — לא מציגים שוב
+    done = {i["name"] for i in monday or [] if i["status"] == "בוצע"}
+    routines = [t for t in todays_routines(today) if f"{DAYS_HE[today.weekday()]} · {t}" not in done]
+    lines = [f"🔁 {esc(t)}" for t in routines] + get_google_tasks(today)
     return "📋 <b>מה צריך לעשות היום:</b>\n" + "\n".join(lines) if lines else ""
 
 # ── monday: דדליינים היום / בעוד 1, 3, 7 ימים, ותקועים — מכל הלוחות ───────────
@@ -232,7 +235,8 @@ def monday_lines(items: list, today: date) -> list:
     # "בוצע" = נעשה, בכל קבוצה שהוא (אין אוטומציה שמעבירה לארכיון)
     open_items = [i for i in items if i["status"] != "בוצע" and "ארכיון" not in i["group"]]
     row = lambda i: f"{esc(i['name'])} <i>({esc(i['group'])})</i>"
-    planned = [f"• {row(i)}" for i in open_items if i["planned"] == today.isoformat()]
+    # השגרה כבר מוצגת למעלה (routines.py) — לא פעמיים
+    planned = [f"• {row(i)}" for i in open_items if i["planned"] == today.isoformat() and "שגרה" not in i["group"]]
     lines = [f'📌 <b>מתוכנן להיום:</b> <a href="{YOSSI_TODAY}">✅ לסמן ביוסי</a>', *planned] if planned else []
     for i in sorted((i for i in open_items if i["deadline"]), key=lambda i: i["deadline"]):
         days = (date.fromisoformat(i["deadline"]) - today).days
@@ -242,15 +246,20 @@ def monday_lines(items: list, today: date) -> list:
     lines += [f"🧱 <b>תקוע</b> · {row(i)}" for i in open_items if i["status"] == "תקוע"]
     return lines
 
-def get_monday(today: date) -> str:
+def get_monday_items() -> list | None:
     if not MONDAY_TOKEN:
         fail("monday", "חסר MONDAY_API_TOKEN")
-        return ""
+        return None
     try:
-        lines = monday_lines(monday_items(), today)
+        return monday_items()
     except Exception as ex:
         fail("monday", ex)
+        return None
+
+def get_monday(today: date, items: list | None) -> str:
+    if items is None:
         return ""
+    lines = monday_lines(items, today)
     if not lines:
         return "🗂️ <b>monday:</b> לא תכננת כלום להיום, אין דדליינים קרובים ואין משימות תקועות ✨"
     return "🗂️ <b>monday:</b>\n" + "\n".join(lines)
@@ -325,12 +334,13 @@ def build_message() -> str:
     now = datetime.now(IL_TZ)
     today = now.date()
     date_str = now.strftime(f"יום {DAYS_HE[now.weekday()]}, %d/%m/%Y")
+    monday = get_monday_items()  # פעם אחת — גם לשגרה שסומנה וגם לחלק של monday
     sections = [
         f"🌅 <b>{get_greeting(today)}</b>\n<i>{date_str}</i>",
         get_weather(),
         get_calendar(today),
-        get_tasks(today),
-        get_monday(today),
+        get_tasks(today, monday),
+        get_monday(today, monday),
     ]
     if FAILURES:
         sections.append("⚠️ <b>מה לא עבד היום:</b>\n" + "\n".join(FAILURES))

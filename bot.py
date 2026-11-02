@@ -187,18 +187,16 @@ def get_tasks(today: date) -> str:
     return "📋 <b>מה צריך לעשות היום:</b>\n" + "\n".join(lines) if lines else ""
 
 # ── monday: דדליינים היום / בעוד 1, 3, 7 ימים, ותקועים — מכל הלוחות ───────────
+# בתוכנית Free אין תזכורות של monday — זה ערוץ התזכורות היחיד.
+# הלוחות והעמודות נמצאים לפי שם (המזהים משתנים כשמאחדים לוחות).
 
-STUDIES_BOARD = 5107040187
-MONDAY_BOARDS = [5107040159, 5107040164, 5107040170, 5107040174, 5107040175, 5107040181,  # עסקים
-                 STUDIES_BOARD, 5107040192]  # לימודים, אישי
-MONDAY_QUERY = """query ($ids: [ID!]) { boards(ids: $ids) { id name items_page(limit: 500) { items {
+MONDAY_QUERY = """{ boards(state: active, limit: 100) { type columns { title } items_page(limit: 500) { items {
   name group { title } column_values { column { title } text } } } } }"""
 DUE_IN = {0: "🔥 <b>היום</b>", 1: "⏳ <b>מחר</b>", 3: "⏳ <b>עוד 3 ימים</b>", 7: "📆 <b>עוד שבוע</b>"}
 
 def monday_items() -> list:
     # shortcut: עד 500 פריטים ללוח (בלי דפדוף); אם לוח יגדל מעבר — להוסיף next_items_page
-    resp = requests.post("https://api.monday.com/v2", timeout=30,
-                         json={"query": MONDAY_QUERY, "variables": {"ids": [str(b) for b in MONDAY_BOARDS]}},
+    resp = requests.post("https://api.monday.com/v2", timeout=30, json={"query": MONDAY_QUERY},
                          headers={"Authorization": MONDAY_TOKEN, "API-Version": "2025-04"})
     resp.raise_for_status()
     body = resp.json()
@@ -206,17 +204,20 @@ def monday_items() -> list:
         raise RuntimeError(str(body["errors"])[:150])
     items = []
     for board in body["data"]["boards"]:
+        # רק לוחות משימות: עם עמודת "סטטוס" (לא "My first project", לא לוחות תתי-פריטים)
+        if board["type"] != "board" or not any(c["title"] == "סטטוס" for c in board["columns"]):
+            continue
         for it in board["items_page"]["items"]:
             cols = {cv["column"]["title"]: cv["text"] or "" for cv in it["column_values"]}  # לפי שם עמודה, לא מזהה
+            # הקבוצה היא הפרויקט / הקורס / סוג המשימה האישית
             items.append({"name": it["name"], "group": it["group"]["title"], "status": cols.get("סטטוס", ""),
-                          "deadline": cols.get("דדליין", "")[:10],
-                          # בלוח הקורסים הקבוצה היא הקורס — "מבחן – מועד א'" לבד לא אומר כלום
-                          "where": it["group"]["title"] if int(board["id"]) == STUDIES_BOARD else board["name"]})
+                          "deadline": cols.get("דדליין", "")[:10]})
     return items
 
 def monday_lines(items: list, today: date) -> list:
+    # "בוצע" = נעשה, בכל קבוצה שהוא (אין אוטומציה שמעבירה לארכיון)
     open_items = [i for i in items if i["status"] != "בוצע" and "ארכיון" not in i["group"]]
-    row = lambda i: f"{esc(i['name'])} <i>({esc(i['where'])})</i>"
+    row = lambda i: f"{esc(i['name'])} <i>({esc(i['group'])})</i>"
     lines = []
     for i in sorted((i for i in open_items if i["deadline"]), key=lambda i: i["deadline"]):
         days = (date.fromisoformat(i["deadline"]) - today).days

@@ -35,8 +35,8 @@ assert "private-secret" not in bot.FAILURES[-1] and "<url>" in bot.FAILURES[-1].
 
 # 🗂️ monday: היום / מחר / עוד 3 / עוד שבוע + תקועים; בלי "בוצע" ובלי ארכיון
 from bot import monday_lines
-def mi(name, deadline="", status="לא התחיל", group="g"):
-    return {"name": name, "deadline": deadline, "status": status, "group": group, "where": "🎯 AMIRNET"}
+def mi(name, deadline="", status="לא התחיל", group="🎯 AMIRNET"):
+    return {"name": name, "deadline": deadline, "status": status, "group": group}
 lines = monday_lines([
     mi("היום", "2026-10-25"), mi("מחר", "2026-10-26"), mi("בעוד 3", "2026-10-28"), mi("בעוד שבוע", "2026-11-01"),
     mi("בעוד 2", "2026-10-27"), mi("בוצע היום", "2026-10-25", "בוצע"), mi("ארכיון", "2026-10-25", group="📦 ארכיון"),
@@ -45,5 +45,22 @@ lines = monday_lines([
 assert [l.split(" · ")[1].split(" <i>")[0] for l in lines] == ["היום", "מחר", "בעוד 3", "בעוד שבוע", "תקוע"]
 assert lines[2].startswith("⏳ <b>עוד 3 ימים</b> (28/10)") and lines[0].endswith("<i>(🎯 AMIRNET)</i>")
 assert monday_lines([], d) == []
+
+# 🔎 לוחות לפי שם: רק לוחות עם "סטטוס"; הקבוצה היא הפרויקט
+class FakeResp:
+    def raise_for_status(self): pass
+    def json(self):
+        it = lambda name: {"name": name, "group": {"title": "🎯 AMIRNET"},
+                           "column_values": [{"column": {"title": "סטטוס"}, "text": "תקוע"},
+                                             {"column": {"title": "דדליין"}, "text": "2026-10-26"}]}
+        return {"data": {"boards": [
+            {"type": "board", "columns": [{"title": "סטטוס"}], "items_page": {"items": [it("כן")]}},
+            {"type": "board", "columns": [{"title": "Status"}], "items_page": {"items": [it("My first project")]}},
+            {"type": "sub_items_board", "columns": [{"title": "סטטוס"}], "items_page": {"items": [it("תת-פריט")]}},
+        ]}}
+_post = bot.requests.post
+bot.requests.post = lambda *a, **k: FakeResp()
+assert bot.monday_items() == [{"name": "כן", "group": "🎯 AMIRNET", "status": "תקוע", "deadline": "2026-10-26"}]
+bot.requests.post = _post
 
 print("ok")

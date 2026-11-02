@@ -195,6 +195,8 @@ MONDAY_BOARDS = "{ boards(state: active, limit: 100) { id type columns { title }
 # פריטים רק לפי מזהים — אותה שאילתה על כל הלוחות בלי ids מחזירה 429 (נמדד 02/11/2026)
 MONDAY_ITEMS = """query ($ids: [ID!]) { boards(ids: $ids) { items_page(limit: 500) { items {
   name group { title } column_values { column { title } text } } } } }"""
+# דבי לא יכולה לקבל לחיצות (GitHub Actions) — הקישור פותח את יוסי ושולח "/start today": רשימת היום עם ✅
+YOSSI_TODAY = "https://t.me/shifts_calmder_bot?start=today"
 DUE_IN = {0: "🔥 <b>היום</b>", 1: "⏳ <b>מחר</b>", 3: "⏳ <b>עוד 3 ימים</b>", 7: "📆 <b>עוד שבוע</b>"}
 
 def monday_gql(query: str, **variables) -> dict:
@@ -231,7 +233,7 @@ def monday_lines(items: list, today: date) -> list:
     open_items = [i for i in items if i["status"] != "בוצע" and "ארכיון" not in i["group"]]
     row = lambda i: f"{esc(i['name'])} <i>({esc(i['group'])})</i>"
     planned = [f"• {row(i)}" for i in open_items if i["planned"] == today.isoformat()]
-    lines = ["📌 <b>מתוכנן להיום:</b>", *planned] if planned else []
+    lines = [f'📌 <b>מתוכנן להיום:</b> <a href="{YOSSI_TODAY}">✅ לסמן ביוסי</a>', *planned] if planned else []
     for i in sorted((i for i in open_items if i["deadline"]), key=lambda i: i["deadline"]):
         days = (date.fromisoformat(i["deadline"]) - today).days
         if days in DUE_IN:

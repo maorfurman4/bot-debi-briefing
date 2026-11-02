@@ -7,7 +7,6 @@
 import asyncio
 import calendar
 import html
-import json
 import logging
 import os
 import re
@@ -21,9 +20,6 @@ import requests
 from dotenv import load_dotenv
 from telegram import Bot
 
-from google.oauth2.credentials import Credentials as OAuthCredentials
-from google.auth.transport.requests import Request
-from googleapiclient.discovery import build
 
 from icalendar import Calendar as iCal
 import recurring_ical_events
@@ -34,7 +30,6 @@ load_dotenv()
 
 BOT_TOKEN           = os.getenv("BOT_TOKEN", "").strip()
 CHAT_ID             = os.getenv("CHAT_ID", "").strip()
-GOOGLE_TASKS_CREDS  = os.getenv("GOOGLE_TASKS_CREDENTIALS", "").strip()
 MONDAY_TOKEN        = os.getenv("MONDAY_API_TOKEN", "").strip()
 
 DEFAULT_ICS = "https://calendar.google.com/calendar/ical/maorfurman123%40gmail.com/private-b134fd273a4b42e3031d97b6af834849/basic.ics"
@@ -128,7 +123,7 @@ def get_weather() -> str:
         fail("מזג אוויר", ex)
         return "🌡️ <b>מזג אוויר</b> — שגיאה בטעינה 😅"
 
-# ── משימות: קבועות (routines.py) + של יוסי (Google Tasks) ───────────────────
+# ── משימות קבועות (routines.py) ──────────────────────────────────────────────
 
 def todays_routines(today: date, routines: list = ROUTINES) -> list:
     last_day = calendar.monthrange(today.year, today.month)[1]
@@ -144,50 +139,11 @@ def todays_routines(today: date, routines: list = ROUTINES) -> list:
             titles.append(r["title"])
     return titles
 
-def _get_google_tasks_service():
-    if not GOOGLE_TASKS_CREDS:
-        fail("משימות (Google Tasks)", "חסר GOOGLE_TASKS_CREDENTIALS")
-        return None
-    try:
-        creds_info = json.loads(GOOGLE_TASKS_CREDS)
-        creds = OAuthCredentials(
-            token=None,
-            refresh_token=creds_info.get("refresh_token"),
-            client_id=creds_info.get("client_id"),
-            client_secret=creds_info.get("client_secret"),
-            token_uri=creds_info.get("token_uri", "https://oauth2.googleapis.com/token"),
-            scopes=["https://www.googleapis.com/auth/tasks.readonly"]
-        )
-        creds.refresh(Request())
-        return build("tasks", "v1", credentials=creds)
-    except Exception as e:
-        fail("משימות (Google Tasks) — התחברות", e)
-        return None
-
-def get_google_tasks(today: date) -> list:
-    service = _get_google_tasks_service()
-    if not service:
-        return []
-    try:
-        items = service.tasks().list(tasklist="@default", showCompleted=False, maxResults=100).execute().get("items", [])
-    except Exception as e:
-        fail("משימות (Google Tasks)", e)
-        return []
-    today_str = today.isoformat()
-    lines = []
-    for t in items:
-        title, due = esc(t.get("title", "(ללא כותרת)")), (t.get("due") or "")[:10]
-        if not due or due == today_str:
-            lines.append(f"✅ {title}")
-        elif due < today_str:
-            lines.append(f"⏰ {title} <i>(באיחור מ-{due[8:10]}/{due[5:7]})</i>")
-    return lines
-
 def get_tasks(today: date, monday: list | None = None) -> str:
     # שגרה שכבר סומנה ✅ ב-monday ("שבת · להתגלח", קבוצה "🔁 שגרה שבועית") — לא מציגים שוב
     done = {i["name"] for i in monday or [] if i["status"] == "בוצע"}
     routines = [t for t in todays_routines(today) if f"{DAYS_HE[today.weekday()]} · {t}" not in done]
-    lines = [f"🔁 {esc(t)}" for t in routines] + get_google_tasks(today)
+    lines = [f"🔁 {esc(t)}" for t in routines]  # המשימות של יוסי — ב-monday (למטה), לא ב-Google Tasks
     return "📋 <b>מה צריך לעשות היום:</b>\n" + "\n".join(lines) if lines else ""
 
 # ── monday: דדליינים היום / בעוד 1, 3, 7 ימים, ותקועים — מכל הלוחות ───────────
@@ -239,6 +195,10 @@ def monday_lines(items: list, today: date) -> list:
     # השגרה כבר מוצגת למעלה (routines.py) — לא פעמיים
     planned = [f"• {row(i)}" for i in open_items if i["planned"] == today.isoformat() and "שגרה" not in i["group"]]
     lines = [f'📌 <b>מתוכנן להיום:</b> <a href="{YOSSI_TODAY}">✅ לסמן ביוסי</a>', *planned] if planned else []
+    # באיחור — מה שפעם הופיע מ-Google Tasks עם ⏰
+    overdue = sorted((i for i in open_items if i["deadline"] and i["deadline"] < today.isoformat()), key=lambda i: i["deadline"])
+    lines += [f"⏰ <b>באיחור מ-{i['deadline'][8:10]}/{i['deadline'][5:7]}</b> · {row(i)}" for i in overdue[:8]]
+    lines += [f"<i>ועוד {len(overdue) - 8} באיחור…</i>"] if len(overdue) > 8 else []
     for i in sorted((i for i in open_items if i["deadline"]), key=lambda i: i["deadline"]):
         days = (date.fromisoformat(i["deadline"]) - today).days
         if days in DUE_IN:

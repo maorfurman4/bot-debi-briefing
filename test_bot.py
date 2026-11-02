@@ -47,20 +47,26 @@ assert lines[2].startswith("⏳ <b>עוד 3 ימים</b> (28/10)") and lines[0].
 assert monday_lines([], d) == []
 
 # 🔎 לוחות לפי שם: רק לוחות עם "סטטוס"; הקבוצה היא הפרויקט
+asked = []
 class FakeResp:
     ok, status_code = True, 200
+    def __init__(self, body): self.body = body
     def json(self):
-        it = lambda name: {"name": name, "group": {"title": "🎯 AMIRNET"},
-                           "column_values": [{"column": {"title": "סטטוס"}, "text": "תקוע"},
-                                             {"column": {"title": "דדליין"}, "text": "2026-10-26"}]}
-        return {"data": {"boards": [
-            {"type": "board", "columns": [{"title": "סטטוס"}], "items_page": {"items": [it("כן")]}},
-            {"type": "board", "columns": [{"title": "Status"}], "items_page": {"items": [it("My first project")]}},
-            {"type": "sub_items_board", "columns": [{"title": "סטטוס"}], "items_page": {"items": [it("תת-פריט")]}},
-        ]}}
+        if "ids" not in self.body["variables"]:
+            return {"data": {"boards": [
+                {"id": "1", "type": "board", "columns": [{"title": "סטטוס"}]},
+                {"id": "2", "type": "board", "columns": [{"title": "Status"}]},          # My first project
+                {"id": "3", "type": "sub_items_board", "columns": [{"title": "סטטוס"}]},
+                {"id": "4", "type": "document", "columns": [{"title": "Files"}]},
+            ]}}
+        asked.append(self.body["variables"]["ids"])
+        return {"data": {"boards": [{"items_page": {"items": [{"name": "כן", "group": {"title": "🎯 AMIRNET"},
+                "column_values": [{"column": {"title": "סטטוס"}, "text": "תקוע"},
+                                  {"column": {"title": "דדליין"}, "text": "2026-10-26"}]}]}}]}}
 _post = bot.requests.post
-bot.requests.post = lambda *a, **k: FakeResp()
+bot.requests.post = lambda *a, **k: FakeResp(k["json"])
 assert bot.monday_items() == [{"name": "כן", "group": "🎯 AMIRNET", "status": "תקוע", "deadline": "2026-10-26"}]
+assert asked == [["1"]]  # פריטים רק מלוחות המשימות, לפי מזהה
 bot.requests.post = _post
 
 print("ok")

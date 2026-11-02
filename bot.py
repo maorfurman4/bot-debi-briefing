@@ -191,14 +191,15 @@ def get_tasks(today: date) -> str:
 # בתוכנית Free אין תזכורות של monday — זה ערוץ התזכורות היחיד.
 # הלוחות והעמודות נמצאים לפי שם (המזהים משתנים כשמאחדים לוחות).
 
-MONDAY_QUERY = """{ boards(state: active, limit: 100) { type columns { title } items_page(limit: 500) { items {
+MONDAY_BOARDS = "{ boards(state: active, limit: 100) { id type columns { title } } }"
+# פריטים רק לפי מזהים — אותה שאילתה על כל הלוחות בלי ids מחזירה 429 (נמדד 02/11/2026)
+MONDAY_ITEMS = """query ($ids: [ID!]) { boards(ids: $ids) { items_page(limit: 500) { items {
   name group { title } column_values { column { title } text } } } } }"""
 DUE_IN = {0: "🔥 <b>היום</b>", 1: "⏳ <b>מחר</b>", 3: "⏳ <b>עוד 3 ימים</b>", 7: "📆 <b>עוד שבוע</b>"}
 
-def monday_items() -> list:
-    # shortcut: עד 500 פריטים ללוח (בלי דפדוף); אם לוח יגדל מעבר — להוסיף next_items_page
+def monday_gql(query: str, **variables) -> dict:
     for attempt in range(2):  # 429 — monday אומר כמה לחכות; ניסיון אחד נוסף
-        resp = requests.post("https://api.monday.com/v2", timeout=30, json={"query": MONDAY_QUERY},
+        resp = requests.post("https://api.monday.com/v2", timeout=30, json={"query": query, "variables": variables},
                              headers={"Authorization": MONDAY_TOKEN, "API-Version": "2025-04"})
         if resp.status_code != 429 or attempt:
             break
@@ -208,11 +209,15 @@ def monday_items() -> list:
     body = resp.json()
     if body.get("errors"):
         raise RuntimeError(str(body["errors"])[:150])
+    return body["data"]
+
+def monday_items() -> list:
+    # רק לוחות משימות: עם עמודת "סטטוס" (לא "My first project", לא מסמכים, לא לוחות תתי-פריטים)
+    ids = [b["id"] for b in monday_gql(MONDAY_BOARDS)["boards"]
+           if b["type"] == "board" and any(c["title"] == "סטטוס" for c in b["columns"])]
+    # shortcut: עד 500 פריטים ללוח (בלי דפדוף); אם לוח יגדל מעבר — להוסיף next_items_page
     items = []
-    for board in body["data"]["boards"]:
-        # רק לוחות משימות: עם עמודת "סטטוס" (לא "My first project", לא לוחות תתי-פריטים)
-        if board["type"] != "board" or not any(c["title"] == "סטטוס" for c in board["columns"]):
-            continue
+    for board in monday_gql(MONDAY_ITEMS, ids=ids)["boards"]:
         for it in board["items_page"]["items"]:
             cols = {cv["column"]["title"]: cv["text"] or "" for cv in it["column_values"]}  # לפי שם עמודה, לא מזהה
             # הקבוצה היא הפרויקט / הקורס / סוג המשימה האישית

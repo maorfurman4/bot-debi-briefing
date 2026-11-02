@@ -12,6 +12,7 @@ import logging
 import os
 import re
 import sys
+import time as time_module
 from datetime import date, datetime, time, timedelta
 import datetime as dt_module
 from zoneinfo import ZoneInfo
@@ -196,9 +197,14 @@ DUE_IN = {0: "🔥 <b>היום</b>", 1: "⏳ <b>מחר</b>", 3: "⏳ <b>עוד 3
 
 def monday_items() -> list:
     # shortcut: עד 500 פריטים ללוח (בלי דפדוף); אם לוח יגדל מעבר — להוסיף next_items_page
-    resp = requests.post("https://api.monday.com/v2", timeout=30, json={"query": MONDAY_QUERY},
-                         headers={"Authorization": MONDAY_TOKEN, "API-Version": "2025-04"})
-    resp.raise_for_status()
+    for attempt in range(2):  # 429 — monday אומר כמה לחכות; ניסיון אחד נוסף
+        resp = requests.post("https://api.monday.com/v2", timeout=30, json={"query": MONDAY_QUERY},
+                             headers={"Authorization": MONDAY_TOKEN, "API-Version": "2025-04"})
+        if resp.status_code != 429 or attempt:
+            break
+        time_module.sleep(min(int(resp.headers.get("Retry-After") or 10), 30))
+    if not resp.ok:
+        raise RuntimeError(f"{resp.status_code}: {resp.text[:150]}")
     body = resp.json()
     if body.get("errors"):
         raise RuntimeError(str(body["errors"])[:150])

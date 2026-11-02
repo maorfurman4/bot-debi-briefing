@@ -48,7 +48,7 @@ assert monday_lines([], d) == []
 
 # 🔎 לוחות לפי שם: רק לוחות עם "סטטוס"; הקבוצה היא הפרויקט
 class FakeResp:
-    def raise_for_status(self): pass
+    ok, status_code = True, 200
     def json(self):
         it = lambda name: {"name": name, "group": {"title": "🎯 AMIRNET"},
                            "column_values": [{"column": {"title": "סטטוס"}, "text": "תקוע"},

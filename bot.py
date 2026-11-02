@@ -12,6 +12,7 @@ import logging
 import os
 import re
 import sys
+import time as time_module
 from datetime import date, datetime, time, timedelta
 import datetime as dt_module
 from zoneinfo import ZoneInfo
@@ -34,6 +35,7 @@ load_dotenv()
 BOT_TOKEN           = os.getenv("BOT_TOKEN", "").strip()
 CHAT_ID             = os.getenv("CHAT_ID", "").strip()
 GOOGLE_TASKS_CREDS  = os.getenv("GOOGLE_TASKS_CREDENTIALS", "").strip()
+MONDAY_TOKEN        = os.getenv("MONDAY_API_TOKEN", "").strip()
 
 DEFAULT_ICS = "https://calendar.google.com/calendar/ical/maorfurman123%40gmail.com/private-b134fd273a4b42e3031d97b6af834849/basic.ics"
 
@@ -185,6 +187,72 @@ def get_tasks(today: date) -> str:
     lines = [f"🔁 {esc(t)}" for t in todays_routines(today)] + get_google_tasks(today)
     return "📋 <b>מה צריך לעשות היום:</b>\n" + "\n".join(lines) if lines else ""
 
+# ── monday: דדליינים היום / בעוד 1, 3, 7 ימים, ותקועים — מכל הלוחות ───────────
+# בתוכנית Free אין תזכורות של monday — זה ערוץ התזכורות היחיד.
+# הלוחות והעמודות נמצאים לפי שם (המזהים משתנים כשמאחדים לוחות).
+
+MONDAY_BOARDS = "{ boards(state: active, limit: 100) { id type columns { title } } }"
+# פריטים רק לפי מזהים — אותה שאילתה על כל הלוחות בלי ids מחזירה 429 (נמדד 02/11/2026)
+MONDAY_ITEMS = """query ($ids: [ID!]) { boards(ids: $ids) { items_page(limit: 500) { items {
+  name group { title } column_values { column { title } text } } } } }"""
+DUE_IN = {0: "🔥 <b>היום</b>", 1: "⏳ <b>מחר</b>", 3: "⏳ <b>עוד 3 ימים</b>", 7: "📆 <b>עוד שבוע</b>"}
+
+def monday_gql(query: str, **variables) -> dict:
+    for attempt in range(2):  # 429 — monday אומר כמה לחכות; ניסיון אחד נוסף
+        resp = requests.post("https://api.monday.com/v2", timeout=30, json={"query": query, "variables": variables},
+                             headers={"Authorization": MONDAY_TOKEN, "API-Version": "2025-04"})
+        if resp.status_code != 429 or attempt:
+            break
+        time_module.sleep(min(int(resp.headers.get("Retry-After") or 10), 30))
+    if not resp.ok:
+        raise RuntimeError(f"{resp.status_code}: {resp.text[:150]}")
+    body = resp.json()
+    if body.get("errors"):
+        raise RuntimeError(str(body["errors"])[:150])
+    return body["data"]
+
+def monday_items() -> list:
+    # רק לוחות משימות: עם עמודת "סטטוס" (לא "My first project", לא מסמכים, לא לוחות תתי-פריטים)
+    ids = [b["id"] for b in monday_gql(MONDAY_BOARDS)["boards"]
+           if b["type"] == "board" and any(c["title"] == "סטטוס" for c in b["columns"])]
+    # shortcut: עד 500 פריטים ללוח (בלי דפדוף); אם לוח יגדל מעבר — להוסיף next_items_page
+    items = []
+    for board in monday_gql(MONDAY_ITEMS, ids=ids)["boards"]:
+        for it in board["items_page"]["items"]:
+            cols = {cv["column"]["title"]: cv["text"] or "" for cv in it["column_values"]}  # לפי שם עמודה, לא מזהה
+            # הקבוצה היא הפרויקט / הקורס / סוג המשימה האישית
+            items.append({"name": it["name"], "group": it["group"]["title"], "status": cols.get("סטטוס", ""),
+                          "deadline": cols.get("דדליין", "")[:10],
+                          "planned": cols.get("📅 מתוכנן ל", "")[:10]})  # היום שמאור תכנן לעבוד עליו
+    return items
+
+def monday_lines(items: list, today: date) -> list:
+    # "בוצע" = נעשה, בכל קבוצה שהוא (אין אוטומציה שמעבירה לארכיון)
+    open_items = [i for i in items if i["status"] != "בוצע" and "ארכיון" not in i["group"]]
+    row = lambda i: f"{esc(i['name'])} <i>({esc(i['group'])})</i>"
+    planned = [f"• {row(i)}" for i in open_items if i["planned"] == today.isoformat()]
+    lines = ["📌 <b>מתוכנן להיום:</b>", *planned] if planned else []
+    for i in sorted((i for i in open_items if i["deadline"]), key=lambda i: i["deadline"]):
+        days = (date.fromisoformat(i["deadline"]) - today).days
+        if days in DUE_IN:
+            when = f" ({i['deadline'][8:10]}/{i['deadline'][5:7]})" if days > 1 else ""
+            lines.append(f"{DUE_IN[days]}{when} · {row(i)}")
+    lines += [f"🧱 <b>תקוע</b> · {row(i)}" for i in open_items if i["status"] == "תקוע"]
+    return lines
+
+def get_monday(today: date) -> str:
+    if not MONDAY_TOKEN:
+        fail("monday", "חסר MONDAY_API_TOKEN")
+        return ""
+    try:
+        lines = monday_lines(monday_items(), today)
+    except Exception as ex:
+        fail("monday", ex)
+        return ""
+    if not lines:
+        return "🗂️ <b>monday:</b> לא תכננת כלום להיום, אין דדליינים קרובים ואין משימות תקועות ✨"
+    return "🗂️ <b>monday:</b>\n" + "\n".join(lines)
+
 # ── Google Calendar ────────────────────────────────────────────────────────────
 
 DAY_START, DAY_END = time(8, 0), time(22, 0)
@@ -260,6 +328,7 @@ def build_message() -> str:
         get_weather(),
         get_calendar(today),
         get_tasks(today),
+        get_monday(today),
     ]
     if FAILURES:
         sections.append("⚠️ <b>מה לא עבד היום:</b>\n" + "\n".join(FAILURES))

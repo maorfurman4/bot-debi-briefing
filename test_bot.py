@@ -66,7 +66,7 @@ lines = monday_lines([
 ], d)
 assert lines[0] == '📌 <b>מתוכנן להיום:</b> <a href="https://t.me/shifts_calmder_bot?start=today">✅ לסמן ביוסי</a>'
 assert lines[1:3] == ["• לעבוד על SMTP <i>(🎯 AMIRNET)</i>", "• מטלה 3 <i>(🔢 אנליזה נומרית)</i>"]
-assert lines[3].startswith("⏳ <b>מחר</b> · דדליין מחר") and len(lines) == 4
+assert lines[3].startswith("🔥 <b>מחר — גג להגיש היום</b> · דדליין מחר") and len(lines) == 4
 
 # 🔎 לוחות לפי שם: רק לוחות עם "סטטוס"; הקבוצה היא הפרויקט
 asked = []

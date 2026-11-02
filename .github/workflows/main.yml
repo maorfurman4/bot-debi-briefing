@@ -26,6 +26,5 @@ jobs:
           CHAT_ID: ${{ secrets.CHAT_ID }}
           GOOGLE_CALENDAR_ICS_2: ${{ secrets.GOOGLE_CALENDAR_ICS_2 }}
           GOOGLE_CALENDAR_ICS_3: ${{ secrets.GOOGLE_CALENDAR_ICS_3 }}
-          GOOGLE_TASKS_CREDENTIALS: ${{ secrets.GOOGLE_TASKS_CREDENTIALS }}
           MONDAY_API_TOKEN: ${{ secrets.MONDAY_API_TOKEN }}
         run: python bot.py

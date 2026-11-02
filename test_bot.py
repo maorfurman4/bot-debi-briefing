@@ -43,8 +43,17 @@ lines = monday_lines([
     mi("תקוע", status="תקוע"),
 ], d)
 assert [l.split(" · ")[1].split(" <i>")[0] for l in lines] == ["היום", "מחר", "בעוד 3", "בעוד שבוע", "תקוע"]
+assert lines[1].startswith("🔥 <b>מחר — גג להגיש היום</b> · ")
 assert lines[2].startswith("⏳ <b>עוד 3 ימים</b> (28/10)") and lines[0].endswith("<i>(🎯 AMIRNET)</i>")
 assert monday_lines([], d) == []
+
+# 🔁 שגרה: מתוכננת היום לא נכנסת ל"מתוכנן להיום" (כבר מוצגת למעלה); שגרה שסומנה ✅ לא מוצגת
+assert monday_lines([mi("ראשון · להישקל", planned="2026-10-25", group="🔁 שגרה שבועית")], d) == []
+bot.ROUTINES[:] = [{"title": "להישקל", "every": "weekly", "days": ["ראשון"]},
+                   {"title": "להתגלח", "every": "weekly", "days": ["ראשון"]}]
+done = [mi("ראשון · להישקל", status="בוצע", group="📦 ארכיון")]
+assert bot.get_tasks(d, done) == "📋 <b>מה צריך לעשות היום:</b>\n🔁 להתגלח"
+assert bot.get_tasks(d, None) == "📋 <b>מה צריך לעשות היום:</b>\n🔁 להישקל\n🔁 להתגלח"  # monday נפל — מציגים הכל
 
 # 📌 מתוכנן להיום — בראש החלק של monday; בלי "בוצע"; שם הפרויקט/הקורס מהקבוצה
 lines = monday_lines([
@@ -54,8 +63,15 @@ lines = monday_lines([
     mi("כבר בוצע", planned="2026-10-25", status="בוצע"),
     mi("מתוכנן למחר", planned="2026-10-26"),
 ], d)
-assert lines[:3] == ["📌 <b>מתוכנן להיום:</b>", "• לעבוד על SMTP <i>(🎯 AMIRNET)</i>", "• מטלה 3 <i>(🔢 אנליזה נומרית)</i>"]
-assert lines[3].startswith("⏳ <b>מחר</b> · דדליין מחר") and len(lines) == 4
+assert lines[0] == '📌 <b>מתוכנן להיום:</b> <a href="https://t.me/shifts_calmder_bot?start=today">✅ לסמן ביוסי</a>'
+assert lines[1:3] == ["• לעבוד על SMTP <i>(🎯 AMIRNET)</i>", "• מטלה 3 <i>(🔢 אנליזה נומרית)</i>"]
+assert lines[3].startswith("🔥 <b>מחר — גג להגיש היום</b> · דדליין מחר") and len(lines) == 4
+
+# ⏰ באיחור (במקום Google Tasks): אחרי "מתוכנן להיום", מהישן לחדש; בלי "בוצע"
+lines = monday_lines([mi("דדליין מחר", "2026-10-26"), mi("באיחור 2", "2026-10-24"), mi("באיחור 1", "2026-10-20"),
+                      mi("בוצע באיחור", "2026-10-20", status="בוצע")], d)
+assert lines[:2] == ["⏰ <b>באיחור מ-20/10</b> · באיחור 1 <i>(🎯 AMIRNET)</i>", "⏰ <b>באיחור מ-24/10</b> · באיחור 2 <i>(🎯 AMIRNET)</i>"]
+assert lines[2].startswith("🔥 <b>מחר")
 
 # 🔎 לוחות לפי שם: רק לוחות עם "סטטוס"; הקבוצה היא הפרויקט
 asked = []

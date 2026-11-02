@@ -3,5 +3,3 @@ requests>=2.31
 python-dotenv>=1.0
 icalendar>=5.0
 recurring-ical-events>=2.0.0
-google-api-python-client
-google-auth

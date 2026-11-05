@@ -5,7 +5,6 @@
 """
 
 import asyncio
-import calendar
 import html
 import logging
 import os
@@ -24,7 +23,6 @@ from telegram import Bot
 from icalendar import Calendar as iCal
 import recurring_ical_events
 
-from routines import ROUTINES
 
 load_dotenv()
 
@@ -123,30 +121,8 @@ def get_weather() -> str:
         fail("מזג אוויר", ex)
         return "🌡️ <b>מזג אוויר</b> — שגיאה בטעינה 😅"
 
-# ── משימות קבועות (routines.py) ──────────────────────────────────────────────
-
-def todays_routines(today: date, routines: list = ROUTINES) -> list:
-    last_day = calendar.monthrange(today.year, today.month)[1]
-    titles = []
-    for r in routines:
-        every = r.get("every")
-        if (
-            every == "daily"
-            or (every == "weekly" and DAYS_HE[today.weekday()] in r.get("days", []))
-            or (every == "monthly" and min(int(r.get("day", 0)), last_day) == today.day)
-            or (every == "yearly" and r.get("date") == today.strftime("%d/%m"))
-        ):
-            titles.append(r["title"])
-    return titles
-
-def get_tasks(today: date, monday: list | None = None) -> str:
-    # שגרה שכבר סומנה ✅ ב-monday ("שבת · להתגלח", קבוצה "🔁 שגרה שבועית") — לא מציגים שוב
-    done = {i["name"] for i in monday or [] if i["status"] == "בוצע"}
-    routines = [t for t in todays_routines(today) if f"{DAYS_HE[today.weekday()]} · {t}" not in done]
-    lines = [f"🔁 {esc(t)}" for t in routines]  # המשימות של יוסי — ב-monday (למטה), לא ב-Google Tasks
-    return "📋 <b>מה צריך לעשות היום:</b>\n" + "\n".join(lines) if lines else ""
-
-# ── monday: דדליינים היום / בעוד 1, 3, 7 ימים, ותקועים — מכל הלוחות ───────────
+# ── monday: דדליינים מחר / בעוד 3, 7 ימים, ותקועים — מכל הלוחות ─────────────────
+# משימות לעשות (מתוכנן להיום, באיחור, דדליין היום, השגרה) — רק ברשימת ה-✅ של יוסי ב-07:00 (5.11: הופיעו פעמיים)
 # בתוכנית Free אין תזכורות של monday — זה ערוץ התזכורות היחיד.
 # הלוחות והעמודות נמצאים לפי שם (המזהים משתנים כשמאחדים לוחות).
 
@@ -157,7 +133,7 @@ MONDAY_ITEMS = """query ($ids: [ID!]) { boards(ids: $ids) { items_page(limit: 50
 # דבי לא יכולה לקבל לחיצות (GitHub Actions) — הקישור פותח את יוסי ושולח "/start today": רשימת היום עם ✅
 YOSSI_TODAY = "https://t.me/shifts_calmder_bot?start=today"
 # "גג יום לפני" (הכלל של מאור): דדליין מחר = היום הוא היום האחרון להגיש
-DUE_IN = {0: "🔥 <b>היום</b>", 1: "🔥 <b>מחר — גג להגיש היום</b>", 3: "⏳ <b>עוד 3 ימים</b>", 7: "📆 <b>עוד שבוע</b>"}
+DUE_IN = {1: "🔥 <b>מחר — גג להגיש היום</b>", 3: "⏳ <b>עוד 3 ימים</b>", 7: "📆 <b>עוד שבוע</b>"}
 
 def monday_gql(query: str, **variables) -> dict:
     for attempt in range(2):  # 429 — monday אומר כמה לחכות; ניסיון אחד נוסף
@@ -192,13 +168,7 @@ def monday_lines(items: list, today: date) -> list:
     # "בוצע" = נעשה, בכל קבוצה שהוא (אין אוטומציה שמעבירה לארכיון)
     open_items = [i for i in items if i["status"] != "בוצע" and "ארכיון" not in i["group"]]
     row = lambda i: f"{esc(i['name'])} <i>({esc(i['group'])})</i>"
-    # השגרה כבר מוצגת למעלה (routines.py) — לא פעמיים
-    planned = [f"• {row(i)}" for i in open_items if i["planned"] == today.isoformat() and "שגרה" not in i["group"]]
-    lines = [f'📌 <b>מתוכנן להיום:</b> <a href="{YOSSI_TODAY}">✅ לסמן ביוסי</a>', *planned] if planned else []
-    # באיחור — מה שפעם הופיע מ-Google Tasks עם ⏰
-    overdue = sorted((i for i in open_items if i["deadline"] and i["deadline"] < today.isoformat()), key=lambda i: i["deadline"])
-    lines += [f"⏰ <b>באיחור מ-{i['deadline'][8:10]}/{i['deadline'][5:7]}</b> · {row(i)}" for i in overdue[:8]]
-    lines += [f"<i>ועוד {len(overdue) - 8} באיחור…</i>"] if len(overdue) > 8 else []
+    lines = []
     for i in sorted((i for i in open_items if i["deadline"]), key=lambda i: i["deadline"]):
         days = (date.fromisoformat(i["deadline"]) - today).days
         if days in DUE_IN:
@@ -218,12 +188,13 @@ def get_monday_items() -> list | None:
         return None
 
 def get_monday(today: date, items: list | None) -> str:
+    tasks = f'📋 <a href="{YOSSI_TODAY}">המשימות של היום — ביוסי</a>'
     if items is None:
-        return ""
+        return tasks
     lines = monday_lines(items, today)
     if not lines:
-        return "🗂️ <b>monday:</b> לא תכננת כלום להיום, אין דדליינים קרובים ואין משימות תקועות ✨"
-    return "🗂️ <b>monday:</b>\n" + "\n".join(lines)
+        return f"🗂️ <b>monday:</b> אין דדליינים קרובים ואין משימות תקועות ✨\n{tasks}"
+    return "🗂️ <b>monday — דדליינים ותקועים:</b>\n" + "\n".join(lines) + f"\n{tasks}"
 
 # ── Google Calendar ────────────────────────────────────────────────────────────
 
@@ -295,13 +266,11 @@ def build_message() -> str:
     now = datetime.now(IL_TZ)
     today = now.date()
     date_str = now.strftime(f"יום {DAYS_HE[now.weekday()]}, %d/%m/%Y")
-    monday = get_monday_items()  # פעם אחת — גם לשגרה שסומנה וגם לחלק של monday
     sections = [
         f"🌅 <b>{get_greeting(today)}</b>\n<i>{date_str}</i>",
         get_weather(),
         get_calendar(today),
-        get_tasks(today, monday),
-        get_monday(today, monday),
+        get_monday(today, get_monday_items()),
     ]
     if FAILURES:
         sections.append("⚠️ <b>מה לא עבד היום:</b>\n" + "\n".join(FAILURES))

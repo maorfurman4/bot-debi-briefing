@@ -128,7 +128,7 @@ def get_weather() -> str:
 
 MONDAY_BOARDS = "{ boards(state: active, limit: 100) { id type columns { title } } }"
 # פריטים רק לפי מזהים — אותה שאילתה על כל הלוחות בלי ids מחזירה 429 (נמדד 02/11/2026)
-MONDAY_ITEMS = """query ($ids: [ID!]) { boards(ids: $ids) { items_page(limit: 500) { items {
+MONDAY_ITEMS = """query ($ids: [ID!]) { boards(ids: $ids) { name items_page(limit: 500) { items {
   name group { title } column_values { column { title } text } } } } }"""
 # דבי לא יכולה לקבל לחיצות (GitHub Actions) — הקישור פותח את יוסי ושולח "/start today": רשימת היום עם ✅
 YOSSI_TODAY = "https://t.me/shifts_calmder_bot?start=today"
@@ -159,14 +159,18 @@ def monday_items() -> list:
         for it in board["items_page"]["items"]:
             cols = {cv["column"]["title"]: cv["text"] or "" for cv in it["column_values"]}  # לפי שם עמודה, לא מזהה
             # הקבוצה היא הפרויקט / הקורס / סוג המשימה האישית
-            items.append({"name": it["name"], "group": it["group"]["title"], "status": cols.get("סטטוס", ""),
+            items.append({"name": it["name"], "board": board.get("name", ""), "group": it["group"]["title"],
+                          "status": cols.get("סטטוס", ""),
                           "deadline": cols.get("דדליין", "")[:10],
                           "planned": cols.get("📅 מתוכנן ל", "")[:10]})  # היום שמאור תכנן לעבוד עליו
     return items
 
 def monday_lines(items: list, today: date) -> list:
     # "בוצע" = נעשה, בכל קבוצה שהוא (אין אוטומציה שמעבירה לארכיון)
-    open_items = [i for i in items if i["status"] != "בוצע" and "ארכיון" not in i["group"]]
+    # 12.11, מאור: "פרוייקטים אם לא הגדרתי שאני רוצה לעבוד על זה אין צורך להזכיר את זה" —
+    # פריט בלוח העסקים בלי "📅 מתוכנן ל" לא מופיע (לא בדדליינים ולא בתקועים); לימודים / אישי / תשלומים — כמו קודם
+    open_items = [i for i in items if i["status"] != "בוצע" and "ארכיון" not in i["group"]
+                  and not ("עסקים" in i.get("board", "") and not i.get("planned"))]
     row = lambda i: f"{esc(i['name'])} <i>({esc(i['group'])})</i>"
     lines = []
     for i in sorted((i for i in open_items if i["deadline"]), key=lambda i: i["deadline"]):

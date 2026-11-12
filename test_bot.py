@@ -34,6 +34,12 @@ assert [l.split(" · ")[1].split(" <i>")[0] for l in lines] == ["מחר", "בע�
 assert lines[0].startswith("🔥 <b>מחר — גג להגיש היום</b> · ") and lines[0].endswith("<i>(🎯 AMIRNET)</i>")
 assert lines[1].startswith("⏳ <b>עוד 3 ימים</b> (28/10)")
 assert monday_lines([], d) == []
+# 12.11: פרויקט בלוח העסקים בלי "📅 מתוכנן ל" — לא מזכירים (לא בדדליין ולא בתקוע); מתוכנן — כן; לימודים — כן
+biz = lambda name, **k: {**mi(name, **k), "board": "💼 עסקים ופרויקטים"}  # noqa: E731
+got = [l.split(" · ")[1].split(" <i>")[0] for l in monday_lines([
+    biz("גל 1", deadline="2026-10-26"), biz("תקוע לא מתוכנן", status="תקוע"),
+    biz("גל 2", deadline="2026-10-26", planned="2026-10-25"), {**mi("מטלה", "2026-10-26", group="🎲 הסתברות"), "board": "📚 קורסים"}], d)]
+assert got == ["גל 2", "מטלה"], got
 
 # 📋 משימות לעשות — רק ביוסי (5.11: הופיעו גם בדבי): לא מתוכנן להיום, לא באיחור, לא דדליין היום, לא שגרה
 todo = [mi("לעבוד על SMTP", planned="2026-10-25"), mi("באיחור", "2026-10-20"), mi("היום", "2026-10-25"),
@@ -65,7 +71,7 @@ class FakeResp:
                                   {"column": {"title": "📅 מתוכנן ל"}, "text": "2026-10-25"}]}]}}]}}
 _post = bot.requests.post
 bot.requests.post = lambda *a, **k: FakeResp(k["json"])
-assert bot.monday_items() == [{"name": "כן", "group": "🎯 AMIRNET", "status": "תקוע", "deadline": "2026-10-26",
+assert bot.monday_items() == [{"name": "כן", "board": "", "group": "🎯 AMIRNET", "status": "תקוע", "deadline": "2026-10-26",
                                "planned": "2026-10-25"}]
 assert asked == [["1"]]  # פריטים רק מלוחות המשימות, לפי מזהה
 bot.requests.post = _post

@@ -4,6 +4,10 @@ on:
   schedule:
     - cron: '0 0 * * *'
   workflow_dispatch:
+    inputs:
+      mode:
+        description: "morning (התדריך) / evening (22:00 — מה להביא מחר; נשלח מה-cron של יהלי)"
+        default: morning
 
 jobs:
   send-briefing:
@@ -26,5 +30,5 @@ jobs:
           CHAT_ID: ${{ secrets.CHAT_ID }}
           GOOGLE_CALENDAR_ICS_2: ${{ secrets.GOOGLE_CALENDAR_ICS_2 }}
           GOOGLE_CALENDAR_ICS_3: ${{ secrets.GOOGLE_CALENDAR_ICS_3 }}
-          MONDAY_API_TOKEN: ${{ secrets.MONDAY_API_TOKEN }}
-        run: python bot.py
+          OPEN_API_KEY: ${{ secrets.OPEN_API_KEY }}  # רשות — AI רק לאירוע שלא ברשימה; בלי — מדלגים
+        run: python bot.py ${{ inputs.mode == 'evening' && '--evening' || '' }}

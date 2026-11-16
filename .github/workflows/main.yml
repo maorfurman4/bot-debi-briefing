@@ -1,4 +1,5 @@
 name: תדריך בוקר דבי
+run-name: "דבי ${{ inputs.mode || 'morning' }}"  # לבדיקת "כבר נשלח היום" (גיבוי מתוזמן)
 
 on:
   schedule:
@@ -9,22 +10,41 @@ on:
         description: "morning (התדריך) / evening (22:00 — מה להביא מחר; נשלח מה-cron של יהלי)"
         default: morning
 
+permissions:
+  contents: read
+  actions: read  # לבדיקת "כבר נשלח היום"
+
 jobs:
   send-briefing:
     runs-on: ubuntu-latest
     steps:
+      - name: Skip if this morning's briefing was already sent
+        # 16.11: הבוקר מגיע מ-cron-job.org (05:30, דרך יהלי). ה-schedule כאן רק גיבוי — GitHub מאחר בשעות
+        if: github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sent=$(gh run list -R "$GITHUB_REPOSITORY" --workflow main.yml --status success --created ">=$(date -u +%F)" \
+                 --json displayTitle -q '[.[] | select(.displayTitle == "דבי morning")] | length')
+          echo "morning already sent today: $sent"
+          if [ "$sent" -gt 0 ]; then echo "SKIP=1" >> "$GITHUB_ENV"; fi
+
       - name: Checkout repo
+        if: env.SKIP != '1'
         uses: actions/checkout@v4
 
       - name: Setup Python
+        if: env.SKIP != '1'
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
       - name: Install dependencies
+        if: env.SKIP != '1'
         run: pip install -r requirements.txt
 
       - name: Run Bot
+        if: env.SKIP != '1'
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}

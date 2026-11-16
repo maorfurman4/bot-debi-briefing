@@ -10,12 +10,13 @@ import logging
 import os
 import re
 import sys
-import time as time_module
 from datetime import date, datetime, time, timedelta
 import datetime as dt_module
 from zoneinfo import ZoneInfo
 
 import requests
+
+import remind
 from dotenv import load_dotenv
 from telegram import Bot
 
@@ -28,7 +29,6 @@ load_dotenv()
 
 BOT_TOKEN           = os.getenv("BOT_TOKEN", "").strip()
 CHAT_ID             = os.getenv("CHAT_ID", "").strip()
-MONDAY_TOKEN        = os.getenv("MONDAY_API_TOKEN", "").strip()
 
 DEFAULT_ICS = "https://calendar.google.com/calendar/ical/maorfurman123%40gmail.com/private-b134fd273a4b42e3031d97b6af834849/basic.ics"
 
@@ -101,104 +101,24 @@ def get_greeting(today: date) -> str:
     # פתיח קבוע לכל יום בחודש; ה-31 חוזר לראשון
     return GREETINGS[(today.day - 1) % len(GREETINGS)]
 
-# ── מזג אוויר (Open-Meteo, תל אביב): טווח יומי, זריחה ושקיעה ──────────────────
+# ── ⛅ מזג אוויר מעשי + 🎒 מה להביא — ב-remind.py (16.11). דדליינים של monday ירדו מהתדריך (מאור: רעש;
+# יהלי ב-07:00 מכסה את מה שבאיחור, ותזכורת 22:00 את מחר).
 
-def get_weather() -> str:
+def get_weather(day: date, timed: list, wx: dict | None) -> str:
+    if wx is None:
+        return "⛅ <b>מזג אוויר</b> — שגיאה בטעינה 😅"
     try:
-        lat, lon = TEL_AVIV
-        om = requests.get(
-            "https://api.open-meteo.com/v1/forecast",
-            params={"latitude": lat, "longitude": lon, "timezone": "Asia/Jerusalem", "forecast_days": 1,
-                    "daily": "temperature_2m_max,temperature_2m_min,sunrise,sunset"},
-            timeout=15,
-        )
-        om.raise_for_status()
-        d = om.json()["daily"]
-        return (f"🌡️ <b>מזג אוויר — תל אביב</b>\n"
-                f"⬆️ {d['temperature_2m_max'][0]:.0f}° ⬇️ {d['temperature_2m_min'][0]:.0f}° | "
-                f"🌅 זריחה {d['sunrise'][0][11:16]} | 🌇 שקיעה {d['sunset'][0][11:16]}")
+        return remind.practical_weather(day, timed, wx)
     except Exception as ex:
         fail("מזג אוויר", ex)
-        return "🌡️ <b>מזג אוויר</b> — שגיאה בטעינה 😅"
+        return "⛅ <b>מזג אוויר</b> — שגיאה בטעינה 😅"
 
-# ── monday: דדליינים מחר / בעוד 3, 7 ימים, ותקועים — מכל הלוחות ─────────────────
-# משימות לעשות (מתוכנן להיום, באיחור, דדליין היום, השגרה) — רק ברשימת ה-✅ של יוסי ב-07:00 (5.11: הופיעו פעמיים)
-# בתוכנית Free אין תזכורות של monday — זה ערוץ התזכורות היחיד.
-# הלוחות והעמודות נמצאים לפי שם (המזהים משתנים כשמאחדים לוחות).
-
-MONDAY_BOARDS = "{ boards(state: active, limit: 100) { id type columns { title } } }"
-# פריטים רק לפי מזהים — אותה שאילתה על כל הלוחות בלי ids מחזירה 429 (נמדד 02/11/2026)
-MONDAY_ITEMS = """query ($ids: [ID!]) { boards(ids: $ids) { name items_page(limit: 500) { items {
-  name group { title } column_values { column { title } text } } } } }"""
-# דבי לא יכולה לקבל לחיצות (GitHub Actions) — הקישור פותח את יוסי ושולח "/start today": רשימת היום עם ✅
-YOSSI_TODAY = "https://t.me/shifts_calmder_bot?start=today"
-# "גג יום לפני" (הכלל של מאור): דדליין מחר = היום הוא היום האחרון להגיש
-DUE_IN = {1: "🔥 <b>מחר — גג להגיש היום</b>", 3: "⏳ <b>עוד 3 ימים</b>", 7: "📆 <b>עוד שבוע</b>"}
-
-def monday_gql(query: str, **variables) -> dict:
-    for attempt in range(2):  # 429 — monday אומר כמה לחכות; ניסיון אחד נוסף
-        resp = requests.post("https://api.monday.com/v2", timeout=30, json={"query": query, "variables": variables},
-                             headers={"Authorization": MONDAY_TOKEN, "API-Version": "2025-04"})
-        if resp.status_code != 429 or attempt:
-            break
-        time_module.sleep(min(int(resp.headers.get("Retry-After") or 10), 30))
-    if not resp.ok:
-        raise RuntimeError(f"{resp.status_code}: {resp.text[:150]}")
-    body = resp.json()
-    if body.get("errors"):
-        raise RuntimeError(str(body["errors"])[:150])
-    return body["data"]
-
-def monday_items() -> list:
-    # רק לוחות משימות: עם עמודת "סטטוס" (לא "My first project", לא מסמכים, לא לוחות תתי-פריטים)
-    ids = [b["id"] for b in monday_gql(MONDAY_BOARDS)["boards"]
-           if b["type"] == "board" and any(c["title"] == "סטטוס" for c in b["columns"])]
-    # shortcut: עד 500 פריטים ללוח (בלי דפדוף); אם לוח יגדל מעבר — להוסיף next_items_page
-    items = []
-    for board in monday_gql(MONDAY_ITEMS, ids=ids)["boards"]:
-        for it in board["items_page"]["items"]:
-            cols = {cv["column"]["title"]: cv["text"] or "" for cv in it["column_values"]}  # לפי שם עמודה, לא מזהה
-            # הקבוצה היא הפרויקט / הקורס / סוג המשימה האישית
-            items.append({"name": it["name"], "board": board.get("name", ""), "group": it["group"]["title"],
-                          "status": cols.get("סטטוס", ""),
-                          "deadline": cols.get("דדליין", "")[:10],
-                          "planned": cols.get("📅 מתוכנן ל", "")[:10]})  # היום שמאור תכנן לעבוד עליו
-    return items
-
-def monday_lines(items: list, today: date) -> list:
-    # "בוצע" = נעשה, בכל קבוצה שהוא (אין אוטומציה שמעבירה לארכיון)
-    # 12.11, מאור: "פרוייקטים אם לא הגדרתי שאני רוצה לעבוד על זה אין צורך להזכיר את זה" —
-    # פריט בלוח העסקים בלי "📅 מתוכנן ל" לא מופיע (לא בדדליינים ולא בתקועים); לימודים / אישי / תשלומים — כמו קודם
-    open_items = [i for i in items if i["status"] != "בוצע" and "ארכיון" not in i["group"]
-                  and not ("עסקים" in i.get("board", "") and not i.get("planned"))]
-    row = lambda i: f"{esc(i['name'])} <i>({esc(i['group'])})</i>"
-    lines = []
-    for i in sorted((i for i in open_items if i["deadline"]), key=lambda i: i["deadline"]):
-        days = (date.fromisoformat(i["deadline"]) - today).days
-        if days in DUE_IN:
-            when = f" ({i['deadline'][8:10]}/{i['deadline'][5:7]})" if days > 1 else ""
-            lines.append(f"{DUE_IN[days]}{when} · {row(i)}")
-    lines += [f"🧱 <b>תקוע</b> · {row(i)}" for i in open_items if i["status"] == "תקוע"]
-    return lines
-
-def get_monday_items() -> list | None:
-    if not MONDAY_TOKEN:
-        fail("monday", "חסר MONDAY_API_TOKEN")
-        return None
+def load_weather() -> dict | None:
     try:
-        return monday_items()
+        return remind.fetch_weather(*TEL_AVIV)
     except Exception as ex:
-        fail("monday", ex)
+        fail("מזג אוויר", ex)
         return None
-
-def get_monday(today: date, items: list | None) -> str:
-    tasks = f'📋 <a href="{YOSSI_TODAY}">המשימות של היום — ביוסי</a>'
-    if items is None:
-        return tasks
-    lines = monday_lines(items, today)
-    if not lines:
-        return f"🗂️ <b>monday:</b> אין דדליינים קרובים ואין משימות תקועות ✨\n{tasks}"
-    return "🗂️ <b>monday — דדליינים ותקועים:</b>\n" + "\n".join(lines) + f"\n{tasks}"
 
 # ── Google Calendar ────────────────────────────────────────────────────────────
 
@@ -246,13 +166,17 @@ def free_gaps(events: list, day: date) -> list:
         gaps.append((cursor, day_end))
     return [(s, e) for s, e in gaps if e - s >= MIN_GAP]
 
-def get_calendar(today: date) -> str:
+def get_events(day: date) -> tuple:
+    """(אירועים עם שעה, אירועים של כל היום) מכל היומנים, בלי כפילויות."""
     timed, all_day = set(), []
     for i, url in enumerate(CALENDARS, 1):
-        t, a = _parse_ics(url, today, f"יומן {i}")
+        t, a = _parse_ics(url, day, f"יומן {i}")
         timed.update(t)
         all_day += [s for s in a if s not in all_day]
+    return sorted(timed), all_day
 
+def get_calendar(today: date, events: tuple | None = None) -> str:
+    timed, all_day = events or get_events(today)
     if not timed and not all_day:
         return "📅 <b>הלו\"ז שלך היום:</b> אין אירועים — יום פנוי 🎉"
 
@@ -266,23 +190,49 @@ def get_calendar(today: date) -> str:
 
 # ── בניית ההודעה ──────────────────────────────────────────────────────────────
 
+def get_today_reminders(today: date, events: tuple, wx: dict | None) -> str:
+    try:
+        lines = remind.reminders(today, events[0], events[1], wx)
+    except Exception as ex:
+        fail("מה להביא", ex)
+        return ""
+    return "🎒 <b>להיום:</b>\n" + "\n".join(remind.esc_line(l) for l in lines) if lines else ""
+
 def build_message() -> str:
     now = datetime.now(IL_TZ)
     today = now.date()
     date_str = now.strftime(f"יום {DAYS_HE[now.weekday()]}, %d/%m/%Y")
+    events, wx = get_events(today), load_weather()
     sections = [
         f"🌅 <b>{get_greeting(today)}</b>\n<i>{date_str}</i>",
-        get_weather(),
-        get_calendar(today),
-        get_monday(today, get_monday_items()),
+        get_weather(today, events[0], wx),
+        get_calendar(today, events),
+        get_today_reminders(today, events, wx),
     ]
     if FAILURES:
         sections.append("⚠️ <b>מה לא עבד היום:</b>\n" + "\n".join(FAILURES))
     return f"\n\n{SEP}\n\n".join(s for s in sections if s.strip())
 
+def build_evening() -> str | None:
+    """22:00 (מ-cron של יהלי): מה להביא / לזכור מחר. אין אירוע שצריך משהו — None, לא שולחים."""
+    tomorrow = datetime.now(IL_TZ).date() + timedelta(days=1)
+    timed, all_day = get_events(tomorrow)
+    lines = remind.reminders(tomorrow, timed, all_day, load_weather())
+    msg = remind.evening_message(tomorrow, lines)
+    if msg and FAILURES:
+        msg += "\n\n⚠️ <b>מה לא עבד:</b>\n" + "\n".join(FAILURES)
+    return msg
+
 # ── שליחה ──────────────────────────────────────────────────────────────────────
 
 async def main():
+    if "--evening" in sys.argv:
+        msg = build_evening()
+        if "--dry-run" in sys.argv:
+            print(msg or "(אין מה להזכיר — לא נשלח)")
+        elif msg:
+            await Bot(token=BOT_TOKEN).send_message(chat_id=CHAT_ID, text=msg, parse_mode="HTML", disable_web_page_preview=True)
+        return
     try:
         msg = build_message()
     except Exception as ex:

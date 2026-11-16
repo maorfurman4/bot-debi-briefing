@@ -28,6 +28,7 @@ jobs:
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
+          GOOGLE_CALENDAR_ICS_1: ${{ secrets.GOOGLE_CALENDAR_ICS_1 }}  # 16.11: היומן הראשי — היה כתוב בקוד
           GOOGLE_CALENDAR_ICS_2: ${{ secrets.GOOGLE_CALENDAR_ICS_2 }}
           GOOGLE_CALENDAR_ICS_3: ${{ secrets.GOOGLE_CALENDAR_ICS_3 }}
           OPEN_API_KEY: ${{ secrets.OPEN_API_KEY }}  # רשות — AI רק לאירוע שלא ברשימה; בלי — מדלגים

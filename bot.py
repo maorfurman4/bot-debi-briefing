@@ -30,10 +30,9 @@ load_dotenv()
 BOT_TOKEN           = os.getenv("BOT_TOKEN", "").strip()
 CHAT_ID             = os.getenv("CHAT_ID", "").strip()
 
-DEFAULT_ICS = "https://calendar.google.com/calendar/ical/maorfurman123%40gmail.com/private-b134fd273a4b42e3031d97b6af834849/basic.ics"
 
 CALENDARS = [url for url in [
-    os.getenv("GOOGLE_CALENDAR_ICS_1", DEFAULT_ICS),
+    os.getenv("GOOGLE_CALENDAR_ICS_1", ""),  # 16.11: הכתובת הפרטית עברה מהקוד לסוד
     os.getenv("GOOGLE_CALENDAR_ICS_2", ""),
     os.getenv("GOOGLE_CALENDAR_ICS_3", ""),
     os.getenv("GOOGLE_CALENDAR_ICS_4", ""),
@@ -168,6 +167,8 @@ def free_gaps(events: list, day: date) -> list:
 
 def get_events(day: date) -> tuple:
     """(אירועים עם שעה, אירועים של כל היום) מכל היומנים, בלי כפילויות."""
+    if not os.getenv("GOOGLE_CALENDAR_ICS_1", "").strip():
+        fail("יומן ראשי", "חסר הסוד GOOGLE_CALENDAR_ICS_1 ב-GitHub")  # בלעדיו התדריך בלי היומן הראשי — שיידע
     timed, all_day = set(), []
     for i, url in enumerate(CALENDARS, 1):
         t, a = _parse_ics(url, day, f"יומן {i}")

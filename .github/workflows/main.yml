@@ -1,12 +1,12 @@
 name: תדריך בוקר דבי
 
 on:
-  schedule:
-    - cron: '0 0 * * *'
+  # 16.11: cron-job.org מפעיל ישירות (workflow_dispatch דרך ה-API של GitHub) — 05:30 mode=morning, 22:00 mode=evening.
+  # ה-schedule של GitHub הוסר: הוא איחר בשעות, ובנוסף ל-cron-job.org היה שולח תדריך שני.
   workflow_dispatch:
     inputs:
       mode:
-        description: "morning (התדריך) / evening (22:00 — מה להביא מחר; נשלח מה-cron של יהלי)"
+        description: "morning (05:30 — התדריך) / evening (22:00 — מה להביא מחר); שניהם מ-cron-job.org"
         default: morning
 
 jobs:

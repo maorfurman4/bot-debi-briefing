@@ -14,7 +14,7 @@
 6. ⚠️ מה לא עבד — רק אם חלק נכשל (למשל Google Tasks או יומן), כדי שנדע מה לתקן
 
 ## מתי
-כל יום ב-00:00 UTC = 02:00 בחורף / 03:00 בקיץ (GitHub Actions, `.github/workflows/main.yml`; לפעמים GitHub מאחר).
+כל יום ב-05:30 (שעון ישראל) — cron-job.org מפעיל את `.github/workflows/main.yml` (workflow_dispatch); ב-22:00 — mode=evening.
 אפשר גם להריץ ידנית: Actions → "תדריך בוקר דבי" → Run workflow.
 
 ## קבצים
@@ -35,3 +35,6 @@
 - **05:30**: "🎒 להיום" (אותם כללים), ⛅ מזג אוויר מעשי (טווח, מה לקחת, יציאה/חזרה לפי האירועים, התראות רק כשיש). הדדליינים של monday ירדו.
 - אירוע שלא ברשימה — gpt-5-mini רק על השם, רק כשבאמת צריך משהו; דורש סוד `OPEN_API_KEY` (רשות — בלעדיו מדלגים).
 - בדיקות: `python test_bot.py`, `python test_remind.py`.
+
+## 16.11 — מתי
+- cron-job.org (שעון ישראל, בדקה) קורא ישירות ל-workflow_dispatch של GitHub: 05:30 `mode=morning`, 22:00 `mode=evening`. אין schedule של GitHub (איחר בשעות, והיה שולח פעמיים).

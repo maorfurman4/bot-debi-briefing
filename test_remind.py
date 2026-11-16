@@ -146,8 +146,8 @@ check("05:30: שורת «🎒 להיום» רק כשיש משהו", morning_sect
 def workflow_has_evening_mode():
     path = os.path.join(os.environ.get("DEBI_DIR") or os.path.dirname(os.path.abspath(__file__)), ".github/workflows/main.yml")
     wf = open(path, encoding="utf-8").read()
-    assert "mode:" in wf and "--evening" in wf and "cron: '0 0 * * *'" in wf  # 05:30 בלי שינוי
-check("ה-workflow: dispatch עם mode=evening; התזמון של הבוקר בלי שינוי", workflow_has_evening_mode)
+    assert "mode:" in wf and "--evening" in wf and "schedule:" not in wf  # 16.11: רק cron-job.org (בלי schedule כפול)
+check("ה-workflow: רק workflow_dispatch עם mode (cron-job.org) — בלי schedule שהיה שולח פעמיים", workflow_has_evening_mode)
 
 print("\nok" if not FAILED else f"\n{len(FAILED)} נכשלו:\n" + "\n".join(f"· {f}" for f in FAILED))
 sys.exit(1 if FAILED else 0)

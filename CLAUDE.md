@@ -1,6 +1,6 @@
 # דבי — morning brief bot
 
-Telegram bot that sends one morning brief at 00:00 UTC via GitHub Actions. Routines live in `routines.py`; tests in `test_bot.py`.
+Telegram bot: morning brief at 05:30 and "מחר" reminders at 22:00 Israel time — cron-job.org triggers the GitHub workflow (workflow_dispatch), no GitHub schedule. Routines live in `routines.py`; tests in `test_bot.py`.
 
 ## Working with Maor
 - Reply in Hebrew; code, commands and commit messages stay in English. Say exactly what you'll do next and what you need from him.

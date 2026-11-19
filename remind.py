@@ -8,6 +8,8 @@ from datetime import date, datetime, timedelta
 
 import requests
 
+import aura_report
+
 DAYS_HE = ["שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת", "ראשון"]
 
 def _clean(title: str) -> str:
@@ -69,6 +71,7 @@ def ai_bring(title: str) -> str | None:
                              json={"model": "gpt-5-mini", "reasoning_effort": "low", "response_format": {"type": "json_object"},
                                    "messages": [{"role": "user", "content": AI_PROMPT.format(title=title)}]})
         resp.raise_for_status()
+        aura_report.ai("gpt-5-mini", resp.json())  # counted for the open "bring" block
         bring = json.loads(resp.json()["choices"][0]["message"]["content"] or "{}").get("bring")
         return str(bring).strip()[:60] if bring else None
     except Exception:

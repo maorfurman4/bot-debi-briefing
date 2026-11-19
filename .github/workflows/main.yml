@@ -30,5 +30,7 @@ jobs:
           CHAT_ID: ${{ secrets.CHAT_ID }}
           GOOGLE_CALENDAR_ICS_2: ${{ secrets.GOOGLE_CALENDAR_ICS_2 }}
           GOOGLE_CALENDAR_ICS_3: ${{ secrets.GOOGLE_CALENDAR_ICS_3 }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}  # רשות — דיווח תחנות ל-AURA HQ; בלי השניים דבי פשוט לא מדווחת
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           OPEN_API_KEY: ${{ secrets.OPEN_API_KEY }}  # רשות — AI רק לאירוע שלא ברשימה; בלי — מדלגים
         run: python bot.py ${{ inputs.mode == 'evening' && '--evening' || '' }}

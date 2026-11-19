@@ -16,6 +16,7 @@ from zoneinfo import ZoneInfo
 
 import requests
 
+import aura_report
 import remind
 from dotenv import load_dotenv
 from telegram import Bot
@@ -198,16 +199,66 @@ def get_today_reminders(today: date, events: tuple, wx: dict | None) -> str:
         return ""
     return "🎒 <b>להיום:</b>\n" + "\n".join(remind.esc_line(l) for l in lines) if lines else ""
 
+# ── AURA HQ: station reports (aura_report.py). Counts only — no event titles, no URLs. ──
+
+BOT = "debi"
+
+def _soft_error(w, headline: str) -> None:
+    # the helpers above catch their own errors (fail()), so the station reports "error" without a raise
+    w.closed = True
+    aura_report.station(BOT, w.station_id, "error", headline)
+
+def weather_facts(day: date, wx: dict | None, when: str) -> tuple | None:
+    """(headline, metrics) from the forecast that was already fetched; None when there is nothing to read."""
+    try:  # telemetry only: a malformed forecast must not break the brief here (get_weather reports it)
+        h = wx["hourly"]
+        idx = [k for k, t in enumerate(h["time"]) if t.startswith(day.isoformat()) and 7 <= int(t[11:13]) <= 23]
+        tmax = max(h["temperature_2m"][k] for k in idx)
+        prob = max((h["precipitation_probability"][k] or 0) for k in idx)
+    except Exception:
+        return None
+    rain = prob >= 50  # same threshold as the umbrella line in remind.practical_weather
+    # the office turns its dome on by the word "גשם", so it appears only when rain is forecast
+    return (f"{'גשם' if rain else 'יבש'} {when}, עד {tmax:.0f} מעלות",
+            {"rain": int(rain), "rain_prob": prob, "temp_max": tmax})
+
+def station_events(day: date) -> tuple:
+    with aura_report.working(BOT, "calendar", "קוראת את היומנים") as w:
+        before = len(FAILURES)
+        events = get_events(day)
+        n, failed = len(events[0]) + len(events[1]), len(FAILURES) - before
+        w.done(f"{n} אירועים מ-{len(CALENDARS)} יומנים" + (f", {failed} לא נטענו" if failed else ""),
+               calendars=len(CALENDARS), events=n, failed=failed)
+    return events
+
+def station_weather(day: date, when: str) -> dict | None:
+    with aura_report.working(BOT, "weather", "מביאה תחזית לתל אביב") as w:
+        wx = load_weather()
+        facts = weather_facts(day, wx, when)
+        if facts:
+            w.done(facts[0], **facts[1])
+        else:
+            _soft_error(w, "התחזית לא נטענה")
+    return wx
+
 def build_message() -> str:
     now = datetime.now(IL_TZ)
     today = now.date()
     date_str = now.strftime(f"יום {DAYS_HE[now.weekday()]}, %d/%m/%Y")
-    events, wx = get_events(today), load_weather()
+    events, wx = station_events(today), station_weather(today, "היום")
+    with aura_report.working(BOT, "bring", "בודקת מה להביא היום") as w:
+        before = len(FAILURES)
+        bring = get_today_reminders(today, events, wx)
+        if len(FAILURES) > before:
+            _soft_error(w, "רשימת מה להביא נכשלה")
+        else:
+            items = bring.count("\n")  # a header line, then one line per item
+            w.done(f"{items} דברים להביא היום" if items else "אין מה להביא היום", items=items)
     sections = [
         f"🌅 <b>{get_greeting(today)}</b>\n<i>{date_str}</i>",
         get_weather(today, events[0], wx),
         get_calendar(today, events),
-        get_today_reminders(today, events, wx),
+        bring,
     ]
     if FAILURES:
         sections.append("⚠️ <b>מה לא עבד היום:</b>\n" + "\n".join(FAILURES))
@@ -216,8 +267,11 @@ def build_message() -> str:
 def build_evening() -> str | None:
     """22:00 (מ-cron של יהלי): מה להביא / לזכור מחר. אין אירוע שצריך משהו — None, לא שולחים."""
     tomorrow = datetime.now(IL_TZ).date() + timedelta(days=1)
-    timed, all_day = get_events(tomorrow)
-    lines = remind.reminders(tomorrow, timed, all_day, load_weather())
+    timed, all_day = station_events(tomorrow)
+    wx = station_weather(tomorrow, "מחר")
+    with aura_report.working(BOT, "bring", "בודקת מה להביא מחר") as w:
+        lines = remind.reminders(tomorrow, timed, all_day, wx)
+        w.done(f"{len(lines)} דברים להביא מחר" if lines else "אין מה להביא מחר", items=len(lines))
     msg = remind.evening_message(tomorrow, lines)
     if msg and FAILURES:
         msg += "\n\n⚠️ <b>מה לא עבד:</b>\n" + "\n".join(FAILURES)
@@ -226,12 +280,18 @@ def build_evening() -> str | None:
 # ── שליחה ──────────────────────────────────────────────────────────────────────
 
 async def main():
+    if "--dry-run" in sys.argv:
+        os.environ["AURA_REPORT"] = "off"  # a dry run does not report to the office
     if "--evening" in sys.argv:
         msg = build_evening()
         if "--dry-run" in sys.argv:
             print(msg or "(אין מה להזכיר — לא נשלח)")
         elif msg:
-            await Bot(token=BOT_TOKEN).send_message(chat_id=CHAT_ID, text=msg, parse_mode="HTML", disable_web_page_preview=True)
+            with aura_report.working(BOT, "writer", "שולחת את תזכורת הערב") as w:
+                await Bot(token=BOT_TOKEN).send_message(chat_id=CHAT_ID, text=msg, parse_mode="HTML", disable_web_page_preview=True)
+                w.done("תזכורת הערב נשלחה", messages=1, failures=len(FAILURES))
+        else:
+            aura_report.station(BOT, "writer", "done", "ערב: אין מה להביא מחר, לא נשלחה הודעה", {"messages": 0})
         return
     try:
         msg = build_message()
@@ -244,15 +304,18 @@ async def main():
         print(msg)
         return
 
-    bot = Bot(token=BOT_TOKEN)
-    if len(msg) <= 4000:
-        await bot.send_message(chat_id=CHAT_ID, text=msg, parse_mode="HTML", disable_web_page_preview=True)
-    else:
-        for section in msg.split(SEP):
-            if section.strip():
-                await bot.send_message(
-                    chat_id=CHAT_ID, text=section.strip(), parse_mode="HTML", disable_web_page_preview=True
-                )
+    with aura_report.working(BOT, "writer", "שולחת את תדריך הבוקר") as w:
+        bot = Bot(token=BOT_TOKEN)
+        if len(msg) <= 4000:
+            await bot.send_message(chat_id=CHAT_ID, text=msg, parse_mode="HTML", disable_web_page_preview=True)
+        else:
+            for section in msg.split(SEP):
+                if section.strip():
+                    await bot.send_message(
+                        chat_id=CHAT_ID, text=section.strip(), parse_mode="HTML", disable_web_page_preview=True
+                    )
+        sent = 1 if len(msg) <= 4000 else sum(1 for section in msg.split(SEP) if section.strip())
+        w.done("תדריך הבוקר נשלח", messages=sent, failures=len(FAILURES))
     logger.info("Done!")
 
 if __name__ == "__main__":

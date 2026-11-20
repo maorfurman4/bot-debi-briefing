@@ -43,6 +43,8 @@ try:
 except RuntimeError:
     pass
 assert [x[2] for x in seen] == ["working", "error"]
+where = seen[-1][4]["where"]  # the error carries its place in our own code: paths, lines, names only
+assert (where["file"], where["func"]) == ("test_bot.py", "boom") and any(t.startswith("bot.py:") and t.endswith(" station_events") for t in where["trace"]), where
 
 # מזג אוויר: המילה "גשם" בכותרת רק כשיש גשם בתחזית; תחזית שלא נטענה — error בלי חריגה
 wx = lambda prob: {"hourly": {"time": [f"{d.isoformat()}T{h:02d}:00" for h in range(24)],

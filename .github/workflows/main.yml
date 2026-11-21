@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "morning (05:30 — התדריך) / evening (22:00 — מה להביא מחר); שניהם מ-cron-job.org"
+        description: "morning (05:30 — התדריך) / evening (22:00 — מה להביא מחר) / week (מוצ\"ש 19:00 — בגדים לשבוע הבא); מ-cron-job.org"
         default: morning
 
 jobs:
@@ -33,4 +33,4 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}  # רשות — דיווח תחנות ל-AURA HQ; בלי השניים דבי פשוט לא מדווחת
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           OPEN_API_KEY: ${{ secrets.OPEN_API_KEY }}  # רשות — AI רק לאירוע שלא ברשימה; בלי — מדלגים
-        run: python bot.py ${{ inputs.mode == 'evening' && '--evening' || '' }}
+        run: python bot.py ${{ inputs.mode == 'evening' && '--evening' || inputs.mode == 'week' && '--week' || '' }}

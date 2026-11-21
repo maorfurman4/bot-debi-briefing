@@ -189,3 +189,67 @@ def practical_weather(day: date, timed: list, wx: dict) -> str:
         alerts.append(f"⛈️ גשם חזק — {mm:.0f} מ\"מ")
     lines += [f"⚠️ {a}" for a in alerts]
     return "\n".join(lines)
+
+# ── 👕 בגדים לשבוע הבא — מוצ"ש 19:00 (mode=week, 21.11). ארון כללי, תל אביב; לפי "מרגיש כמו", גשם, רוח והיומן ──
+
+SPORT = ("ריצה", "🏃", "לרוץ", "אימון", "כושר", "ספורט", "כדורגל", "כדורסל", "שחייה", "בריכה", "יוגה", "פילאטיס", "gym")
+DRESSY = ("חתונה", "בר מצווה", "בת מצווה", "ברית", "חינה", "אירוע", "מסיבה", "דייט", "ראיון", "טקס", "הופעה")
+
+def next_week(today: date) -> list:
+    """ראשון–שבת של השבוע הבא (משבת: מחר עד שבת הבאה)."""
+    start = today + timedelta(days=(6 - today.weekday()) % 7 or 7)
+    return [start + timedelta(days=i) for i in range(7)]
+
+def _base(t: float) -> str:  # לפי ה"מרגיש כמו" הכי חם ביום
+    return ("טישרט + מכנס קצר, סנדלים" if t >= 27 else "טישרט + מכנס קצר או ג'ינס" if t >= 23 else
+            "טישרט + ג'ינס" if t >= 19 else "חולצה ארוכה / סווטשירט דק + ג'ינס" if t >= 15 else
+            "סווטשירט או קפוצ'ון + ג'ינס" if t >= 11 else "סוודר + מעיל + ג'ינס")
+
+def _layer(t: float) -> str | None:  # לשעות הקרות (בוקר / ערב)
+    return None if t >= 20 else "סווטשירט דק" if t >= 16 else "קפוצ'ון" if t >= 12 else "ג'קט"
+
+def outfit(day: date, wx: dict, titles: list) -> tuple | None:
+    """(טווח טמפ', שורות) ליום אחד; None — אין תחזית ליום הזה."""
+    h = wx["hourly"]
+    idx = [k for k, t in enumerate(h["time"]) if t.startswith(day.isoformat()) and 7 <= int(t[11:13]) <= 22]
+    if not idx:
+        return None
+    feels = {int(h["time"][k][11:13]): h["apparent_temperature"][k] for k in idx}
+    warm = max(feels.values())
+    temps = [h["temperature_2m"][k] for k in idx]
+    rain = max((h["precipitation_probability"][k] or 0) for k in idx)
+    wind = max((h["wind_speed_10m"][k] or 0) for k in idx)
+    base = _base(warm)
+    cold = {"בבוקר": min(v for k, v in feels.items() if k <= 10), "בערב": min(v for k, v in feels.items() if k >= 18)}
+    when = [w for w, v in cold.items() if v <= warm - 4 and _layer(v)]
+    if "מכנס קצר" in base and min(cold.values()) < 16:  # 21.11, Maor: no shorts on a hoodie/jacket day
+        base = "טישרט + ג'ינס"
+    lines = [f"👕 {base}"]
+    if when and "מעיל" not in base:
+        lines.append(f"🧥 {' ו'.join(when)}: {_layer(min(cold[w] for w in when))}")
+    if rain >= 50:
+        lines.append(f"☂️ גשם ({rain:.0f}%) — מטרייה ונעליים סגורות")
+    elif rain >= 30:
+        lines.append(f"☂️ אולי גשם ({rain:.0f}%) — מטרייה קטנה בתיק")
+    if wind >= 30 and "מעיל" not in base:
+        lines.append(f"💨 רוח ({wind:.0f} קמ\"ש) — ג'קט רוח")
+    if any(_has(t, *SPORT) for t in titles):
+        lines.append("🎽 אימון ביומן — בגדי ספורט")
+    if any(_has(t, *DRESSY) for t in titles):
+        lines.append("👔 אירוע ביומן — חולצה מכופתרת + מכנס ארוך")
+    if any(_has(t, "מעבדה", "מעבדת") for t in titles):
+        lines.append("👟 מעבדה — נעליים סגורות")
+    return f"{min(temps):.0f}°–{max(temps):.0f}°", lines
+
+def week_message(today: date, wx: dict | None, events: dict) -> str:
+    """events: {יום: (timed, all_day)}. שמות האירועים לא מוצגים — רק מה ללבוש בגללם."""
+    days = next_week(today)
+    blocks = []
+    for d in days:
+        timed, all_day = events.get(d, ([], []))
+        got = outfit(d, wx, [n for _, _, n in timed] + list(all_day)) if wx else None
+        head = f"<b>{DAYS_HE[d.weekday()]} {d.day}.{d.month}</b>"
+        blocks.append(f"{head} · {got[0]}\n" + "\n".join(got[1]) if got else f"{head}\nאין תחזית — תציץ בתדריך של הבוקר")
+    first, last = days[0], days[-1]
+    return (f"👕 <b>בגדים לשבוע הבא · {first.day}.{first.month}–{last.day}.{last.month}</b>\n"
+            "<i>תל אביב, לפי התחזית והיומן. סוף השבוע פחות בטוח — התדריך של הבוקר מעדכן.</i>\n\n" + "\n\n".join(blocks))

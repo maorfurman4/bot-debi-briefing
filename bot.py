@@ -5,6 +5,7 @@
 """
 
 import asyncio
+import functools
 import html
 import logging
 import os
@@ -61,7 +62,9 @@ def fail(section: str, ex) -> None:
     logger.error("%s: %s", section, ex)
     # בלי כתובות — כתובות ה-ICS מכילות מפתח פרטי
     detail = re.sub(r"https?://\S+", "<url>", str(ex))[:150]
-    FAILURES.append(f"• <b>{esc(section)}</b>: {esc(detail)}")
+    line = f"• <b>{esc(section)}</b>: {esc(detail)}"
+    if line not in FAILURES:  # mode=week reads each calendar 7 times — one line per failure
+        FAILURES.append(line)
 
 # ── פתיח ──────────────────────────────────────────────────────────────────────
 
@@ -114,9 +117,9 @@ def get_weather(day: date, timed: list, wx: dict | None) -> str:
         fail("מזג אוויר", ex)
         return "⛅ <b>מזג אוויר</b> — שגיאה בטעינה 😅"
 
-def load_weather() -> dict | None:
+def load_weather(days: int = 2) -> dict | None:
     try:
-        return remind.fetch_weather(*TEL_AVIV)
+        return remind.fetch_weather(*TEL_AVIV, days=days)
     except Exception as ex:
         fail("מזג אוויר", ex)
         return None
@@ -130,12 +133,17 @@ def _to_il(value) -> datetime:
     # שעה בלי אזור זמן ב-ICS היא שעה מקומית
     return value.replace(tzinfo=IL_TZ) if value.tzinfo is None else value.astimezone(IL_TZ)
 
+@functools.lru_cache(maxsize=None)
+def _ics(url: str):
+    # one download per calendar per run (mode=week reads 7 days); a failed download is not cached
+    resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
+    resp.raise_for_status()
+    return iCal.from_ical(resp.content)
+
 def _parse_ics(url: str, target_date: date, label: str) -> tuple:
     timed, all_day = [], []
     try:
-        resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
-        resp.raise_for_status()
-        for event in recurring_ical_events.of(iCal.from_ical(resp.content)).at(target_date):
+        for event in recurring_ical_events.of(_ics(url)).at(target_date):
             summary = str(event.get("SUMMARY", "(ללא שם)"))
             start = event.get("DTSTART").dt
             if isinstance(start, dt_module.datetime):
@@ -277,11 +285,40 @@ def build_evening() -> str | None:
         msg += "\n\n⚠️ <b>מה לא עבד:</b>\n" + "\n".join(FAILURES)
     return msg
 
+def build_week() -> str:
+    """מוצ"ש 19:00 (mode=week): מה ללבוש בכל יום בשבוע הבא."""
+    today = datetime.now(IL_TZ).date()
+    days = remind.next_week(today)
+    with aura_report.working(BOT, "calendar", "קוראת את היומנים לשבוע הבא") as w:
+        before = len(FAILURES)
+        events = {d: get_events(d) for d in days}
+        n, failed = sum(len(t) + len(a) for t, a in events.values()), len(FAILURES) - before
+        w.done(f"{n} אירועים בשבוע הבא" + (f", {failed} יומנים לא נטענו" if failed else ""), events=n, failed=failed)
+    with aura_report.working(BOT, "weather", "מביאה תחזית לשבוע הבא") as w:
+        wx = load_weather(days=8)
+        if wx:
+            w.done("תחזית ל-7 ימים")
+        else:
+            _soft_error(w, "התחזית לא נטענה")
+    msg = remind.week_message(today, wx, events)
+    if FAILURES:
+        msg += "\n\n⚠️ <b>מה לא עבד:</b>\n" + "\n".join(FAILURES)
+    return msg
+
 # ── שליחה ──────────────────────────────────────────────────────────────────────
 
 async def main():
     if "--dry-run" in sys.argv:
         os.environ["AURA_REPORT"] = "off"  # a dry run does not report to the office
+    if "--week" in sys.argv:
+        msg = build_week()
+        if "--dry-run" in sys.argv:
+            print(msg)
+            return
+        with aura_report.working(BOT, "writer", "שולחת את תכנון הבגדים לשבוע") as w:
+            await Bot(token=BOT_TOKEN).send_message(chat_id=CHAT_ID, text=msg, parse_mode="HTML", disable_web_page_preview=True)
+            w.done("תכנון הבגדים לשבוע נשלח", messages=1, failures=len(FAILURES))
+        return
     if "--evening" in sys.argv:
         msg = build_evening()
         if "--dry-run" in sys.argv:

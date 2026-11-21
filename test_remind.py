@@ -149,5 +149,55 @@ def workflow_has_evening_mode():
     assert "mode:" in wf and "--evening" in wf and "schedule:" not in wf  # 16.11: רק cron-job.org (בלי schedule כפול)
 check("ה-workflow: רק workflow_dispatch עם mode (cron-job.org) — בלי schedule שהיה שולח פעמיים", workflow_has_evening_mode)
 
+# 👕 21.11: בגדים לשבוע הבא (מוצ"ש 19:00, mode=week)
+SAT = date(2026, 11, 21)
+
+def fake_week(feels_at, rain=0, wind=0):
+    """תחזית מזויפת ל-7 הימים: feels_at(hour) → "מרגיש כמו"; temperature_2m = אותו דבר."""
+    times, f = [], []
+    for d in R().next_week(SAT):
+        for hh in range(24):
+            times.append(f"{d.isoformat()}T{hh:02d}:00"); f.append(feels_at(hh))
+    n = len(times)
+    return {"hourly": {"time": times, "temperature_2m": f, "apparent_temperature": f,
+                       "precipitation_probability": [rain] * n, "wind_speed_10m": [wind] * n}}
+
+def week_days():
+    days = R().next_week(SAT)
+    assert days[0] == date(2026, 11, 22) and days[0].weekday() == 6 and days[-1] == date(2026, 11, 28)
+    assert R().next_week(date(2026, 11, 22))[0] == date(2026, 11, 29)  # מראשון — ראשון הבא
+check("👕 השבוע הבא = ראשון–שבת אחרי השבת", week_days)
+
+def outfit_rules():
+    r, d = R(), date(2026, 11, 22)
+    hot = r.outfit(d, fake_week(lambda h: 29), [])
+    assert hot == ("29°–29°", ["👕 טישרט + מכנס קצר, סנדלים"]), hot
+    chilly = r.outfit(d, fake_week(lambda h: 22 if 11 <= h <= 16 else 14), [])[1]
+    assert chilly[0] == "👕 טישרט + ג'ינס" and chilly[1] == "🧥 בבוקר ובערב: קפוצ'ון", chilly
+    wet = r.outfit(d, fake_week(lambda h: 9, rain=70, wind=45), ["אימון כושר", "חתונה של דני", "מעבדה בפיזיקה"])[1]
+    assert wet[0] == "👕 סוודר + מעיל + ג'ינס" and not any(l.startswith(("🧥", "💨")) for l in wet), wet  # כבר עם מעיל
+    assert "☂️ גשם (70%) — מטרייה ונעליים סגורות" in wet and "🎽 אימון ביומן — בגדי ספורט" in wet
+    assert any(l.startswith("👔") for l in wet) and any(l.startswith("👟") for l in wet)
+    assert "אולי גשם" in r.outfit(d, fake_week(lambda h: 20, rain=35), [])[1][1]
+    jacket_day = r.outfit(d, fake_week(lambda h: 24 if 11 <= h <= 16 else 12), [])[1]
+    assert jacket_day[:2] == ["👕 טישרט + ג'ינס", "🧥 בבוקר ובערב: קפוצ'ון"], jacket_day  # בלי מכנס קצר
+    mild_eve = r.outfit(d, fake_week(lambda h: 25 if h <= 17 else 17), [])[1]
+    assert mild_eve[0] == "👕 טישרט + מכנס קצר או ג'ינס" and mild_eve[1] == "🧥 בערב: סווטשירט דק", mild_eve
+check("👕 בגד לפי מרגיש-כמו, שכבה לבוקר/ערב, גשם/רוח, אימון/אירוע/מעבדה מהיומן", outfit_rules)
+
+def week_msg():
+    r = R()
+    msg = r.week_message(SAT, fake_week(lambda h: 20), {date(2026, 11, 23): ([], ["חתונה <סודי>"])})
+    assert msg.startswith("👕 <b>בגדים לשבוע הבא · 22.11–28.11</b>") and msg.count("👕 טישרט") == 7
+    assert "<b>ראשון 22.11</b> · 20°–20°" in msg and "<b>שבת 28.11</b>" in msg
+    assert "סודי" not in msg and msg.count("👔") == 1  # שמות האירועים לא מוצגים
+    assert r.week_message(SAT, None, {}).count("אין תחזית") == 7
+check("👕 הודעת השבוע: 7 ימים, בלי שמות אירועים; בלי תחזית — לא נופלת", week_msg)
+
+def workflow_has_week_mode():
+    path = os.path.join(os.environ.get("DEBI_DIR") or os.path.dirname(os.path.abspath(__file__)), ".github/workflows/main.yml")
+    assert "inputs.mode == 'week' && '--week'" in open(path, encoding="utf-8").read()
+check("ה-workflow: mode=week → --week", workflow_has_week_mode)
+
 print("\nok" if not FAILED else f"\n{len(FAILED)} נכשלו:\n" + "\n".join(f"· {f}" for f in FAILED))
 sys.exit(1 if FAILED else 0)

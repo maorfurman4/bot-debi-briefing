@@ -211,6 +211,17 @@ def get_today_reminders(today: date, events: tuple, wx: dict | None) -> str:
 
 BOT = "debi"
 
+def apply_aura_settings() -> None:
+    """Maor's overrides from AURA, read once at run start; none set (or a bad value) -> the constants above stay."""
+    global DAY_START, DAY_END, MIN_GAP
+    hours = aura_report.cfg_get(BOT, "FREE_HOURS", (DAY_START.hour, DAY_END.hour))
+    if len(hours) == 2 and 0 <= hours[0] < hours[1] <= 23:
+        DAY_START, DAY_END = time(int(hours[0])), time(int(hours[1]))
+    gap = aura_report.cfg_get(BOT, "MIN_GAP_H", MIN_GAP / timedelta(hours=1))
+    if gap > 0:
+        MIN_GAP = timedelta(hours=gap)
+    remind.AI_MODEL = aura_report.cfg_get(BOT, "AI_MODEL", [remind.AI_MODEL])[0]
+
 def _soft_error(w, headline: str) -> None:
     # the helpers above catch their own errors (fail()), so the station reports "error" without a raise
     w.closed = True
@@ -310,6 +321,9 @@ def build_week() -> str:
 async def main():
     if "--dry-run" in sys.argv:
         os.environ["AURA_REPORT"] = "off"  # a dry run does not report to the office
+    if aura_report.paused(BOT):
+        return  # paused in AURA: no station report, nothing sent
+    apply_aura_settings()
     if "--week" in sys.argv:
         msg = build_week()
         if "--dry-run" in sys.argv:

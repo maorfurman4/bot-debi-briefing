@@ -55,4 +55,30 @@ assert "גשם" not in dry[0] and dry[1]["rain"] == 0
 bot.load_weather, seen[:] = (lambda: None), []
 assert bot.station_weather(d, "היום") is None and [x[2] for x in seen] == ["working", "error"]
 
+# AURA control: Maor's overrides from AURA; none set -> today's constants; wrong type/shape -> ignored; paused -> nothing runs
+import asyncio, time as _t
+from datetime import time, timedelta
+import remind
+real = (bot.DAY_START, bot.DAY_END, bot.MIN_GAP, remind.AI_MODEL)
+def aura(settings, paused=False):
+    bot.DAY_START, bot.DAY_END, bot.MIN_GAP, remind.AI_MODEL = real  # each case starts from the code's constants
+    aura_report._cfg["debi"] = (_t.time(), {"paused": paused, "settings": settings})
+    bot.apply_aura_settings()
+    return bot.DAY_START, bot.DAY_END, bot.MIN_GAP, remind.AI_MODEL
+assert aura({}) == (time(8, 0), time(22, 0), timedelta(hours=1), "gpt-5-mini") == real
+assert aura({"FREE_HOURS": [9, 21], "MIN_GAP_H": 1.5, "AI_MODEL": ["gpt-6-luna", "x"]}) == (time(9), time(21), timedelta(hours=1.5), "gpt-6-luna")
+assert free_gaps([], d) == [(at(9), at(21))]
+assert aura({"FREE_HOURS": "abc", "MIN_GAP_H": "abc", "AI_MODEL": "gpt-6-luna"}) == real
+assert aura({"FREE_HOURS": [21, 9], "MIN_GAP_H": 0}) == real and aura({"FREE_HOURS": [9]}) == real
+aura({}, paused=True)
+built = []
+bot.build_message = bot.build_evening = bot.build_week = lambda: built.append(1) or "x"
+bot.Bot = lambda **k: (_ for _ in ()).throw(AssertionError("sent while paused"))
+seen[:] = []
+for argv in (["bot.py"], ["bot.py", "--evening"], ["bot.py", "--week"]):
+    bot.sys.argv = argv
+    asyncio.run(bot.main())
+assert built == [] and seen == [], (built, seen)
+aura({})
+
 print("ok")

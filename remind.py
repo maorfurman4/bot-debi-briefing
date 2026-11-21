@@ -60,6 +60,8 @@ Is there something specific he clearly must bring or prepare for it? Only if it 
 (e.g. a passport for a flight, a swimsuit for swimming). Regular meetings, classes, work, hangouts — nothing.
 Return JSON only: {{"bring": "<at most 6 Hebrew words>" or null}}"""
 
+AI_MODEL = "gpt-5-mini"  # AURA setting AI_MODEL (bot.apply_aura_settings) can replace it
+
 def ai_bring(title: str) -> str | None:
     """gpt-5-mini — רק לאירוע שלא ברשימה, רק השם; אין מפתח — מדלגים בשקט."""
     key = os.getenv("OPEN_API_KEY", "").strip()
@@ -68,10 +70,10 @@ def ai_bring(title: str) -> str | None:
     try:
         resp = requests.post("https://api.openai.com/v1/chat/completions", timeout=40,
                              headers={"Authorization": f"Bearer {key}"},
-                             json={"model": "gpt-5-mini", "reasoning_effort": "low", "response_format": {"type": "json_object"},
+                             json={"model": AI_MODEL, "reasoning_effort": "low", "response_format": {"type": "json_object"},
                                    "messages": [{"role": "user", "content": AI_PROMPT.format(title=title)}]})
         resp.raise_for_status()
-        aura_report.ai("gpt-5-mini", resp.json())  # counted for the open "bring" block
+        aura_report.ai(AI_MODEL, resp.json())  # counted for the open "bring" block
         bring = json.loads(resp.json()["choices"][0]["message"]["content"] or "{}").get("bring")
         return str(bring).strip()[:60] if bring else None
     except Exception:

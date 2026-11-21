@@ -179,6 +179,10 @@ def outfit_rules():
     assert "☂️ גשם (70%) — מטרייה ונעליים סגורות" in wet and "🎽 אימון ביומן — בגדי ספורט" in wet
     assert any(l.startswith("👔") for l in wet) and any(l.startswith("👟") for l in wet)
     assert "אולי גשם" in r.outfit(d, fake_week(lambda h: 20, rain=35), [])[1][1]
+    jacket_day = r.outfit(d, fake_week(lambda h: 24 if 11 <= h <= 16 else 12), [])[1]
+    assert jacket_day[:2] == ["👕 טישרט + ג'ינס", "🧥 בבוקר ובערב: קפוצ'ון"], jacket_day  # בלי מכנס קצר
+    mild_eve = r.outfit(d, fake_week(lambda h: 25 if h <= 17 else 17), [])[1]
+    assert mild_eve[0] == "👕 טישרט + מכנס קצר או ג'ינס" and mild_eve[1] == "🧥 בערב: סווטשירט דק", mild_eve
 check("👕 בגד לפי מרגיש-כמו, שכבה לבוקר/ערב, גשם/רוח, אימון/אירוע/מעבדה מהיומן", outfit_rules)
 
 def week_msg():

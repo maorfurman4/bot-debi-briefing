@@ -220,9 +220,11 @@ def outfit(day: date, wx: dict, titles: list) -> tuple | None:
     rain = max((h["precipitation_probability"][k] or 0) for k in idx)
     wind = max((h["wind_speed_10m"][k] or 0) for k in idx)
     base = _base(warm)
-    lines = [f"👕 {base}"]
     cold = {"בבוקר": min(v for k, v in feels.items() if k <= 10), "בערב": min(v for k, v in feels.items() if k >= 18)}
     when = [w for w, v in cold.items() if v <= warm - 4 and _layer(v)]
+    if "מכנס קצר" in base and min(cold.values()) < 16:  # 21.11, Maor: no shorts on a hoodie/jacket day
+        base = "טישרט + ג'ינס"
+    lines = [f"👕 {base}"]
     if when and "מעיל" not in base:
         lines.append(f"🧥 {' ו'.join(when)}: {_layer(min(cold[w] for w in when))}")
     if rain >= 50:

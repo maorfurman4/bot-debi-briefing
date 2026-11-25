@@ -194,6 +194,34 @@ def week_msg():
     assert r.week_message(SAT, None, {}).count("אין תחזית") == 7
 check("👕 הודעת השבוע: 7 ימים, בלי שמות אירועים; בלי תחזית — לא נופלת", week_msg)
 
+def weather_retries_timeout():
+    r = R()
+    import requests
+    calls = []
+    class Ok:
+        status_code = 200
+        def raise_for_status(self): pass
+        def json(self): return {"hourly": {}}
+    def flaky(*a, **k):
+        calls.append(1)
+        if len(calls) == 1:
+            raise requests.ReadTimeout("Read timed out. (read timeout=15)")
+        return Ok()
+    real = r.requests.get
+    r.requests.get = flaky
+    try:
+        assert r.fetch_weather(32.08, 34.78, pause=0) == {"hourly": {}} and len(calls) == 2
+        calls.clear()
+        r.requests.get = lambda *a, **k: (calls.append(1), (_ for _ in ()).throw(requests.ReadTimeout("x")))[1]
+        try:
+            r.fetch_weather(32.08, 34.78, pause=0)
+            raise AssertionError("expected a timeout after 3 tries")
+        except requests.ReadTimeout:
+            assert len(calls) == 3
+    finally:
+        r.requests.get = real
+check("⛅ Open-Meteo לא ענה בזמן → ניסיון נוסף; 3 כישלונות → שגיאה (כמו קודם)", weather_retries_timeout)
+
 def workflow_has_week_mode():
     path = os.path.join(os.environ.get("DEBI_DIR") or os.path.dirname(os.path.abspath(__file__)), ".github/workflows/main.yml")
     assert "inputs.mode == 'week' && '--week'" in open(path, encoding="utf-8").read()

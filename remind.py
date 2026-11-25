@@ -4,6 +4,7 @@
 import json
 import os
 import re
+import time as time_module
 from datetime import date, datetime, timedelta
 
 import requests
@@ -127,13 +128,21 @@ def esc_line(line: str) -> str:
 
 # ── ⛅ מזג אוויר מעשי ─────────────────────────────────────────────────────────
 
-def fetch_weather(lat: float, lon: float, days: int = 2) -> dict:
-    resp = requests.get("https://api.open-meteo.com/v1/forecast", timeout=15, params={
-        "latitude": lat, "longitude": lon, "timezone": "Asia/Jerusalem", "forecast_days": days,
-        "hourly": "temperature_2m,apparent_temperature,precipitation_probability,precipitation,wind_speed_10m",
-        "daily": "uv_index_max"})
-    resp.raise_for_status()
-    return resp.json()
+def fetch_weather(lat: float, lon: float, days: int = 2, tries: int = 3, pause: float = 3) -> dict:
+    # Open-Meteo sometimes stalls past the read timeout (23.11, 25.11); a second try a few seconds later answers
+    for attempt in range(1, tries + 1):
+        try:
+            resp = requests.get("https://api.open-meteo.com/v1/forecast", timeout=(5, 20), params={
+                "latitude": lat, "longitude": lon, "timezone": "Asia/Jerusalem", "forecast_days": days,
+                "hourly": "temperature_2m,apparent_temperature,precipitation_probability,precipitation,wind_speed_10m",
+                "daily": "uv_index_max"})
+            if resp.status_code < 500 or attempt == tries:  # 4xx is our request: retrying won't help
+                resp.raise_for_status()
+                return resp.json()
+        except (requests.ConnectionError, requests.Timeout):
+            if attempt == tries:
+                raise
+        time_module.sleep(pause * attempt)
 
 def at_hour(wx: dict | None, when: datetime) -> dict | None:
     if not wx:

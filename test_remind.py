@@ -104,14 +104,16 @@ check("22:00: «🌙 מחר · שלישי 17.11» + השורות; אין כלו�
 # ── ⛅ מזג אוויר מעשי ─────────────────────────────────────────────────────────
 def weather_plain_day():
     text = R().practical_weather(TUE, [], wx(temp=22))
-    assert text == "⛅ <b>מזג אוויר:</b> 22°–22°", text  # בלי זריחה/שקיעה, בלי "קח", בלי התראות
-check("⛅ יום רגיל → שורה אחת, בלי מספרים מיותרים (זריחה/שקיעה) ובלי התראות", weather_plain_day)
+    assert text == "⛅ <b>מזג אוויר:</b> 22°–22°\n👕 טישרט + ג'ינס", text  # בלי זריחה/שקיעה, בלי "קח", בלי התראות
+check("⛅ יום רגיל → הטווח ומה ללבוש, בלי מספרים מיותרים (זריחה/שקיעה) ובלי התראות", weather_plain_day)
 
-def weather_take():
-    text = R().practical_weather(TUE, [], wx(temp=13, feels=10, rain=60))
-    assert "קח: ☂️ מטרייה · 🧥 מעיל" in text, text
-    assert "💧 מים וכובע" in R().practical_weather(TUE, [], wx(temp=31))
-check("⛅ גשם/קר → «קח: ☂️ מטרייה · 🧥 מעיל»; חם → 💧 מים וכובע", weather_take)
+def weather_take():  # 27.11: the look like the weekly message, umbrella inside it, no duplicate "קח"
+    text = R().practical_weather(TUE, [ev(9, "מעבדת מערכות")], wx(temp=13, feels=10, rain=60))
+    assert "👕 סוודר + מעיל + ג'ינס" in text and "☂️ גשם (60%) — מטרייה ונעליים סגורות" in text, text
+    assert "👟 מעבדה — נעליים סגורות" in text and "קח:" not in text, text
+    hot = R().practical_weather(TUE, [], wx(temp=31))
+    assert "👕 טישרט + מכנס קצר, סנדלים" in hot and "קח: 💧 מים וכובע" in hot, hot
+check("⛅ גשם/קר → מה ללבוש כמו בהודעת השבוע (מטרייה ומעבדה בפנים); חם → 💧 מים וכובע", weather_take)
 
 def weather_at_his_hours():
     w = wx(temp=22)

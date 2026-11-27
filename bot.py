@@ -108,11 +108,11 @@ def get_greeting(today: date) -> str:
 # ── ⛅ מזג אוויר מעשי + 🎒 מה להביא — ב-remind.py (16.11). דדליינים של monday ירדו מהתדריך (מאור: רעש;
 # יהלי ב-07:00 מכסה את מה שבאיחור, ותזכורת 22:00 את מחר).
 
-def get_weather(day: date, timed: list, wx: dict | None) -> str:
+def get_weather(day: date, timed: list, wx: dict | None, all_day: list = ()) -> str:
     if wx is None:
         return "⛅ <b>מזג אוויר</b> — שגיאה בטעינה 😅"
     try:
-        return remind.practical_weather(day, timed, wx)
+        return remind.practical_weather(day, timed, wx, all_day)
     except Exception as ex:
         fail("מזג אוויר", ex)
         return "⛅ <b>מזג אוויר</b> — שגיאה בטעינה 😅"
@@ -275,7 +275,7 @@ def build_message() -> str:
             w.done(f"{items} דברים להביא היום" if items else "אין מה להביא היום", items=items)
     sections = [
         f"🌅 <b>{get_greeting(today)}</b>\n<i>{date_str}</i>",
-        get_weather(today, events[0], wx),
+        get_weather(today, events[0], wx, events[1]),
         get_calendar(today, events),
         bring,
     ]

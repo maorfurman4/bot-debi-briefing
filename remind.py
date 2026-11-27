@@ -162,8 +162,8 @@ def run_advice(wx: dict | None, when: datetime) -> str:
     wear = "שכבה ארוכה + כפפות" if t < 10 else "ארוך דק" if t < 16 else "קצר + שכבה דקה" if t < 22 else "קצר, ובקבוק מים"
     return f"{w['temperature_2m']:.0f}°" + (f", {rain:.0f}% גשם" if rain >= 30 else "") + f" — {wear}"
 
-def practical_weather(day: date, timed: list, wx: dict) -> str:
-    """⛅ טווח אחד, מה לקחת/ללבוש, מזג האוויר ביציאה ובחזרה (לפי האירועים), והתראות — רק כשיש."""
+def practical_weather(day: date, timed: list, wx: dict, all_day: list = ()) -> str:
+    """⛅ טווח אחד, מה ללבוש (כמו בהודעת השבוע), מזג האוויר ביציאה ובחזרה (לפי האירועים), והתראות — רק כשיש."""
     h = wx["hourly"]
     idx = [k for k, t in enumerate(h["time"]) if t.startswith(day.isoformat()) and 7 <= int(t[11:13]) <= 23]
     temps = [h["temperature_2m"][k] for k in idx]
@@ -180,6 +180,10 @@ def practical_weather(day: date, timed: list, wx: dict) -> str:
         take.append("🧥 מעיל" if min(feels) < 11 else "🧥 ג'קט")
     if (temps and max(temps) >= 30) or uv >= 8:
         take.append("💧 מים וכובע")
+    look = outfit(day, wx, [n for _, _, n in timed] + list(all_day))
+    if look:  # 27.11: the same look as the weekly clothes message, so he knows what to put on today
+        lines += look[1]
+        take = [t for t in take if t.startswith("💧")]  # umbrella and jacket are already in the look
     if take:
         lines.append("קח: " + " · ".join(take))
     if timed:
